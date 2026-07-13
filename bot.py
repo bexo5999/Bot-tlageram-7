@@ -43,7 +43,8 @@ RULES = load_rules()
 waiting_for_rule = {}
 
 # معرف المشرف
-ADMIN_IDS = ["8798182716"]  # ضع معرفات المشرفين هنا
+# معرف المشرفين (يمكنك إضافة أكثر من مشرف)
+ADMIN_IDS = ["8798182716", "8916460129"]  # ضع معرفات المشرفين هنا  # ضع معرفات المشرفين هنا
 
 # أمر /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
