@@ -3,10 +3,13 @@ import logging
 import os
 import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, MessageHandler, Filters
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # تفعيل التسجيل
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
 # ملف لحفظ الأحكام
 RULES_FILE = "rules.json"
@@ -43,16 +46,16 @@ waiting_for_rule = {}
 ADMIN_IDS = ["8798182716"]  # ضع معرفات المشرفين هنا
 
 # أمر /start
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll")],
         [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    rules_text = "\n".join([f"{k}: {v}" for k, v in RULES.items()])
+    rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
     
-    update.message.reply_text(
+    await update.message.reply_text(
         f"🎲 مرحباً بك في لعبة النرد!\n"
         f"اضغط على الزر لرمي النرد ومعرفة الحكم.\n\n"
         f"📜 الأحكام الحالية:\n{rules_text}",
@@ -60,9 +63,9 @@ def start(update, context):
     )
 
 # معالجة ضغط الأزرار
-def button_handler(update, context):
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     
     user_id = str(query.from_user.id)
     data = query.data
@@ -80,7 +83,7 @@ def button_handler(update, context):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             message,
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -88,7 +91,7 @@ def button_handler(update, context):
     
     elif data == "settings":
         if user_id not in ADMIN_IDS:
-            query.edit_message_text(
+            await query.edit_message_text(
                 "⛔ عذراً، هذا الأمر للمشرفين فقط!",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🔙 العودة", callback_data="back")]
@@ -104,7 +107,7 @@ def button_handler(update, context):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "⚙️ *لوحة التحكم*\n\nاختر الإجراء الذي تريده:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -112,12 +115,12 @@ def button_handler(update, context):
     
     elif data == "add_rule":
         if user_id not in ADMIN_IDS:
-            query.edit_message_text("⛔ غير مصرح!")
+            await query.edit_message_text("⛔ غير مصرح!")
             return
         
         waiting_for_rule[user_id] = "waiting_for_rule_number"
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "✏️ *إضافة حكم جديد*\n\n"
             "أرسل رقم الحكم أولاً (مثال: 7)\n"
             "ثم سأطلب منك كتابة الحكم.\n\n"
@@ -127,11 +130,11 @@ def button_handler(update, context):
     
     elif data == "delete_rule":
         if user_id not in ADMIN_IDS:
-            query.edit_message_text("⛔ غير مصرح!")
+            await query.edit_message_text("⛔ غير مصرح!")
             return
         
         keyboard = []
-        for num, rule in RULES.items():
+        for num, rule in sorted(RULES.items(), key=lambda x: int(x[0])):
             keyboard.append([InlineKeyboardButton(
                 f"🗑️ {num}: {rule[:20]}...", 
                 callback_data=f"del_{num}"
@@ -139,7 +142,7 @@ def button_handler(update, context):
         keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="settings")])
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        query.edit_message_text(
+        await query.edit_message_text(
             "🗑️ *اختر الحكم الذي تريد حذفه:*",
             reply_markup=reply_markup,
             parse_mode='Markdown'
@@ -147,14 +150,14 @@ def button_handler(update, context):
     
     elif data.startswith("del_"):
         if user_id not in ADMIN_IDS:
-            query.edit_message_text("⛔ غير مصرح!")
+            await query.edit_message_text("⛔ غير مصرح!")
             return
         
         rule_num = data.replace("del_", "")
         if rule_num in RULES:
             del RULES[rule_num]
             save_rules(RULES)
-            query.edit_message_text(
+            await query.edit_message_text(
                 f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
@@ -162,15 +165,15 @@ def button_handler(update, context):
                 ])
             )
         else:
-            query.edit_message_text("❌ الحكم غير موجود!")
+            await query.edit_message_text("❌ الحكم غير موجود!")
     
     elif data == "view_rules":
         if not RULES:
-            query.edit_message_text("📋 لا توجد أحكام حالياً!")
+            await query.edit_message_text("📋 لا توجد أحكام حالياً!")
             return
         
-        rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items())])
-        query.edit_message_text(
+        rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
+        await query.edit_message_text(
             f"📋 *قائمة الأحكام:*\n\n{rules_text}",
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
@@ -186,9 +189,9 @@ def button_handler(update, context):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        rules_text = "\n".join([f"{k}: {v}" for k, v in RULES.items()])
+        rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
         
-        query.edit_message_text(
+        await query.edit_message_text(
             f"🎲 مرحباً بك في لعبة النرد!\n"
             f"اضغط على الزر لرمي النرد ومعرفة الحكم.\n\n"
             f"📜 الأحكام الحالية:\n{rules_text}",
@@ -196,7 +199,7 @@ def button_handler(update, context):
         )
 
 # معالجة الرسائل النصية
-def handle_message(update, context):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     
     if user_id not in ADMIN_IDS:
@@ -210,13 +213,13 @@ def handle_message(update, context):
     
     if state == "waiting_for_rule_number":
         if not text.isdigit():
-            update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
+            await update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
             return
         
         context.user_data['rule_number'] = text
         waiting_for_rule[user_id] = "waiting_for_rule_text"
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ تم استلام الرقم *{text}*\n\n✏️ الآن أرسل نص الحكم:",
             parse_mode='Markdown'
         )
@@ -225,7 +228,7 @@ def handle_message(update, context):
         rule_number = context.user_data.get('rule_number')
         
         if rule_number in RULES:
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"❌ الحكم رقم {rule_number} موجود مسبقاً!\nالحكم الحالي: {RULES[rule_number]}"
             )
             del waiting_for_rule[user_id]
@@ -237,7 +240,7 @@ def handle_message(update, context):
         del waiting_for_rule[user_id]
         context.user_data.clear()
         
-        update.message.reply_text(
+        await update.message.reply_text(
             f"✅ *تم إضافة الحكم بنجاح!*\n\n"
             f"📌 الرقم: {rule_number}\n"
             f"📜 الحكم: {text}",
@@ -245,22 +248,25 @@ def handle_message(update, context):
         )
 
 # أمر /cancel
-def cancel(update, context):
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     if user_id in waiting_for_rule:
         del waiting_for_rule[user_id]
         context.user_data.clear()
-        update.message.reply_text("✅ تم إلغاء العملية!")
+        await update.message.reply_text("✅ تم إلغاء العملية!")
     else:
-        update.message.reply_text("❌ لا توجد عملية نشطة!")
+        await update.message.reply_text("❌ لا توجد عملية نشطة!")
 
 # أمر /help
-def help_command(update, context):
-    rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items())])
-    update.message.reply_text(
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
+    await update.message.reply_text(
         f"🎲 *كيفية اللعب:*\n"
         f"اضغط على زر 'ارمي النرد' وسيظهر لك رقم وحكم.\n\n"
-        f"📜 *الأحكام الحالية:*\n{rules_text}",
+        f"📜 *الأحكام الحالية:*\n{rules_text}\n\n"
+        f"🔹 *للمشرفين:*\n"
+        f"• استخدم زر 'الإعدادات' لإدارة الأحكام\n"
+        f"• يمكنك إضافة أو حذف الأحكام بسهولة",
         parse_mode='Markdown'
     )
 
@@ -268,21 +274,24 @@ def help_command(update, context):
 def main():
     TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
     
-    # إنشاء التطبيق بالطريقة القديمة (متوافقة)
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
+    if not TOKEN or TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ خطأ: لم يتم العثور على توكن البوت!")
+        print("الرجاء إضافة متغير بيئي باسم BOT_TOKEN")
+        return
+    
+    # إنشاء التطبيق بالطريقة الحديثة
+    application = Application.builder().token(TOKEN).build()
     
     # إضافة المعالجات
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("help", help_command))
-    dp.add_handler(CommandHandler("cancel", cancel))
-    dp.add_handler(CallbackQueryHandler(button_handler))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("cancel", cancel))
+    application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
     # بدء البوت
     print("🤖 البوت يعمل...")
-    updater.start_polling()
-    updater.idle()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
