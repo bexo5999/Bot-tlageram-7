@@ -133,10 +133,9 @@ RULES = load_rules()
 waiting_for_rule = {}
 waiting_for_import = {}
 waiting_for_admin_add = {}
-waiting_for_admin_remove = {}
 
 # ============ المشرفين الأساسيين (صلاحية كاملة) ============
-MASTER_ADMINS = [8798182716, 8916460129]  # ضع معرفات المشرفين الأساسيين هنا
+MASTER_ADMINS = [8798182716, 8916460129]
 
 # ============ إيموجي النرد حسب الرقم ============
 DICE_EMOJIS = {
@@ -177,17 +176,17 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         return False
 
-async def has_permission(update: Update, context: ContextTypes.DEFAULT_TYPE, require_master=False):
-    """التحقق من الصلاحيات - للمشرفين الأساسيين أو مشرفي المجموعة"""
+def should_show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تحديد ما إذا كان يجب إظهار أزرار الإعدادات"""
     user_id = update.effective_user.id
+    chat_type = update.effective_chat.type
     
-    if require_master:
+    # في الخاص: فقط للمشرفين الأساسيين
+    if chat_type == "private":
         return is_master_admin(user_id)
     
-    if is_master_admin(user_id):
-        return True
-    
-    return await is_group_admin(update, context)
+    # في المجموعة: للمشرفين فقط
+    return False  # سنتحقق بشكل غير متزامن في الدوال
 
 # ============ دالة /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,22 +199,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if chat_type != "private":
         save_group_info(chat_id, chat_name)
     
+    rules_count = len(RULES)
+    
+    # أزرار اللعب فقط للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
     ]
     
-    # إضافة أزرار الإعدادات حسب الصلاحية
+    # إضافة أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
-        keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
+            keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
+        # في المجموعة: تحقق من صلاحية المشرف
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    rules_count = len(RULES)
     
     if chat_type == "private":
         msg = f"🎲 *مرحباً بك في لعبة النرد!* 🎲\n\nاضغط على الزر لرمي النرد والحصول على حكمك.\n\n📜 عدد الأحكام المتاحة: *{rules_count}* حكم\n💡 الأحكام تظهر فقط عند اللعب!"
@@ -234,9 +235,11 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     
     chat_id = update.effective_chat.id
+    user_id = query.from_user.id
+    chat_type = update.effective_chat.type
     
     # التحقق من تفعيل البوت في المجموعة
-    if update.effective_chat.type != "private":
+    if chat_type != "private":
         if not is_group_enabled(chat_id):
             await query.edit_message_text("⛔ البوت معطل في هذه المجموعة!\nتواصل مع المشرف لتفعيله.")
             return
@@ -272,19 +275,18 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💫 حظ سعيد!"
     )
     
+    # ======== أزرار اللعب للجميع ========
     keyboard = [
         [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
     ]
     
-    # إضافة أزرار حسب الصلاحية
-    user_id = query.from_user.id
-    chat_type = update.effective_chat.type
-    
+    # ======== أزرار الإعدادات فقط للمشرفين ========
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
-        keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
+            keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
+        # في المجموعة: تحقق من صلاحية المشرف
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
     
@@ -309,14 +311,16 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     rules_count = len(RULES)
     
+    # أزرار اللعب للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
     ]
     
+    # أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
-        keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
+            keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
@@ -334,7 +338,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ============ إعدادات المجموعة (لمشرفي المجموعة) ============
+# ============ إعدادات المجموعة (للمشرفين فقط) ============
 async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -343,8 +347,8 @@ async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     chat_name = update.effective_chat.title or "المجموعة"
     
-    # التحقق من الصلاحية
-    if not await has_permission(update, context):
+    # التحقق من صلاحية المشرف
+    if not await is_group_admin(update, context):
         await query.edit_message_text("⛔ عذراً، هذا الأمر للمشرفين فقط!")
         return
     
@@ -356,7 +360,6 @@ async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔄 تفعيل/تعطيل البوت", callback_data=f"toggle_group_{chat_id}")],
     ]
     
-    # مشرفي المجموعة يمكنهم إدارة مشرفين آخرين
     if is_admin:
         keyboard.append([InlineKeyboardButton("➕ إضافة مشرف للمجموعة", callback_data=f"add_group_admin_{chat_id}")])
         keyboard.append([InlineKeyboardButton("🗑️ حذف مشرف من المجموعة", callback_data=f"remove_group_admin_{chat_id}")])
@@ -391,8 +394,7 @@ async def toggle_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     chat_id = data.replace("toggle_group_", "")
     
-    # التحقق من الصلاحية
-    if not await has_permission(update, context):
+    if not await is_group_admin(update, context):
         await query.edit_message_text("⛔ عذراً، هذا الأمر للمشرفين فقط!")
         return
     
@@ -402,7 +404,6 @@ async def toggle_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     status = "🟢 مفعل" if new_status else "🔴 معطل"
     
-    # العودة لإعدادات المجموعة
     await query.edit_message_text(
         f"✅ *تم تحديث حالة البوت!*\n\n"
         f"📌 الحالة الجديدة: {status}",
@@ -443,7 +444,6 @@ async def add_group_admin_start(update: Update, context: ContextTypes.DEFAULT_TY
     
     user_id = query.from_user.id
     
-    # فقط المشرفين الأساسيين يمكنهم إضافة مشرفين
     if not is_master_admin(user_id):
         await query.edit_message_text("⛔ هذا الأمر للمشرفين الأساسيين فقط!")
         return
@@ -454,7 +454,7 @@ async def add_group_admin_start(update: Update, context: ContextTypes.DEFAULT_TY
     
     chat_id = data.replace("add_group_admin_", "")
     
-    waiting_for_admin_add[user_id] = chat_id
+    waiting_for_admin_add[str(user_id)] = chat_id
     
     await query.edit_message_text(
         "➕ *إضافة مشرف للمجموعة*\n\n"
@@ -474,7 +474,6 @@ async def remove_group_admin_start(update: Update, context: ContextTypes.DEFAULT
     
     user_id = query.from_user.id
     
-    # فقط المشرفين الأساسيين يمكنهم حذف مشرفين
     if not is_master_admin(user_id):
         await query.edit_message_text("⛔ هذا الأمر للمشرفين الأساسيين فقط!")
         return
@@ -551,12 +550,10 @@ async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = waiting_for_admin_add[user_id]
     admin_id = update.message.text.strip()
     
-    # التحقق من أن الإدخال رقم
     if not admin_id.isdigit():
         await update.message.reply_text("❌ الرجاء إدخال معرف صحيح (أرقام فقط)!")
         return
     
-    # إضافة المشرف
     add_group_admin(chat_id, admin_id)
     
     del waiting_for_admin_add[user_id]
@@ -566,6 +563,36 @@ async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆔 المعرف: {admin_id}\n"
         f"📌 المجموعة: {chat_id}\n\n"
         f"يمكنه الآن إدارة إعدادات البوت في هذه المجموعة.",
+        parse_mode='Markdown'
+    )
+
+# ============ الإعدادات (للمشرفين الأساسيين فقط في الخاص) ============
+async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # فقط المشرفين الأساسيين
+    if not is_master_admin(user_id):
+        await query.edit_message_text("⛔ هذا الأمر للمشرفين الأساسيين فقط!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ إضافة حكم جديد", callback_data="add_rule")],
+        [InlineKeyboardButton("🗑️ حذف حكم", callback_data="delete_rule")],
+        [InlineKeyboardButton("📋 عرض جميع الأحكام", callback_data="view_rules")],
+        [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    rules_count = len(RULES)
+    
+    await query.edit_message_text(
+        f"⚙️ *لوحة التحكم*\n\n"
+        f"📜 عدد الأحكام: *{rules_count}*\n\n"
+        f"اختر الإجراء الذي تريده:",
+        reply_markup=reply_markup,
         parse_mode='Markdown'
     )
 
@@ -618,19 +645,15 @@ async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
-    # عدد الأحكام
     c.execute("SELECT COUNT(*) FROM rules")
     rules_count = c.fetchone()[0]
     
-    # عدد المجموعات
     c.execute("SELECT COUNT(*) FROM groups")
     groups_count = c.fetchone()[0]
     
-    # عدد المجموعات المفعلة
     c.execute("SELECT COUNT(*) FROM groups WHERE enabled = 1")
     active_groups = c.fetchone()[0]
     
-    # عدد مشرفي المجموعات
     c.execute("SELECT COUNT(DISTINCT user_id) FROM group_admins")
     group_admins = c.fetchone()[0]
     
@@ -886,6 +909,80 @@ async def add_default_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
+# ============ إضافة حكم جديد ============
+async def add_rule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if not is_master_admin(int(user_id)):
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    waiting_for_rule[user_id] = "waiting_for_rule_number"
+    
+    await query.edit_message_text(
+        "✏️ *إضافة حكم جديد*\n\n"
+        "أرسل رقم الحكم أولاً (مثال: 7)\n"
+        "ثم سأطلب منك كتابة الحكم.\n\n"
+        "🔙 لإلغاء العملية أرسل /cancel",
+        parse_mode='Markdown'
+    )
+
+# ============ حذف حكم ============
+async def delete_rule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if not is_master_admin(int(user_id)):
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    if not RULES:
+        await query.edit_message_text("📋 لا توجد أحكام لحذفها!")
+        return
+    
+    keyboard = []
+    for num, rule in sorted(RULES.items(), key=lambda x: int(x[0])):
+        keyboard.append([InlineKeyboardButton(
+            f"🗑️ {num}: {rule[:25]}...", 
+            callback_data=f"del_{num}"
+        )])
+    keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="settings")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🗑️ *اختر الحكم الذي تريد حذفه:*",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ عرض الأحكام ============
+async def view_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if not RULES:
+        await query.edit_message_text("📋 لا توجد أحكام حالياً!")
+        return
+    
+    rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
+    
+    if len(rules_text) > 4000:
+        rules_text = rules_text[:4000] + "\n\n... (تم اختصار القائمة)"
+    
+    await query.edit_message_text(
+        f"📋 *قائمة الأحكام:*\n\n{rules_text}\n\n📊 الإجمالي: {len(RULES)} حكم",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
+            [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+        ]),
+        parse_mode='Markdown'
+    )
+
 # ============ معالجة الأزرار ============
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -894,7 +991,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
     
-    # ============ أزرار اللعب ============
+    # ======== أزرار اللعب للجميع ========
     if data == "roll":
         await roll_dice(update, context)
         return
@@ -903,7 +1000,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_main(update, context)
         return
     
-    # ============ أزرار المشرفين الأساسيين ============
+    # ======== أزرار المشرفين الأساسيين فقط ========
+    if not is_master_admin(user_id):
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    if data == "settings":
+        await settings(update, context)
+        return
+    
     if data == "master_settings":
         await master_settings(update, context)
         return
@@ -912,118 +1017,39 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await bot_stats(update, context)
         return
     
+    if data == "add_rule":
+        await add_rule(update, context)
+        return
+    
+    if data == "delete_rule":
+        await delete_rule(update, context)
+        return
+    
+    if data == "view_rules":
+        await view_rules(update, context)
+        return
+    
+    if data == "export_rules":
+        await export_rules(update, context)
+        return
+    
+    if data == "import_rules":
+        await import_rules_start(update, context)
+        return
+    
+    if data == "delete_all_rules":
+        await delete_all_rules(update, context)
+        return
+    
+    if data == "add_default_rules":
+        await add_default_rules(update, context)
+        return
+    
     if data == "confirm_delete_all":
         await confirm_delete_all(update, context)
         return
     
-    # ============ أزرار إدارة الأحكام ============
-    if data == "settings":
-        # التحقق من الصلاحية - فقط للمشرفين الأساسيين أو مشرفي المجموعة
-        if not is_master_admin(user_id):
-            # التحقق من صلاحية المشرف في الخاص (دائماً مسموح)
-            pass
-        
-        keyboard = [
-            [InlineKeyboardButton("➕ إضافة حكم جديد", callback_data="add_rule")],
-            [InlineKeyboardButton("🗑️ حذف حكم", callback_data="delete_rule")],
-            [InlineKeyboardButton("📋 عرض جميع الأحكام", callback_data="view_rules")],
-            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        rules_count = len(RULES)
-        
-        await query.edit_message_text(
-            f"⚙️ *لوحة التحكم*\n\n"
-            f"📜 عدد الأحكام: *{rules_count}*\n\n"
-            f"اختر الإجراء الذي تريده:",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        return
-    
-    if data == "add_rule":
-        if not is_master_admin(user_id):
-            await query.edit_message_text("⛔ غير مصرح!")
-            return
-        
-        waiting_for_rule[user_id] = "waiting_for_rule_number"
-        
-        await query.edit_message_text(
-            "✏️ *إضافة حكم جديد*\n\n"
-            "أرسل رقم الحكم أولاً (مثال: 7)\n"
-            "ثم سأطلب منك كتابة الحكم.\n\n"
-            "🔙 لإلغاء العملية أرسل /cancel",
-            parse_mode='Markdown'
-        )
-        return
-    
-    if data == "delete_rule":
-        if not is_master_admin(user_id):
-            await query.edit_message_text("⛔ غير مصرح!")
-            return
-        
-        if not RULES:
-            await query.edit_message_text("📋 لا توجد أحكام لحذفها!")
-            return
-        
-        keyboard = []
-        for num, rule in sorted(RULES.items(), key=lambda x: int(x[0])):
-            keyboard.append([InlineKeyboardButton(
-                f"🗑️ {num}: {rule[:25]}...", 
-                callback_data=f"del_{num}"
-            )])
-        keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="settings")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            "🗑️ *اختر الحكم الذي تريد حذفه:*",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        return
-    
-    if data.startswith("del_"):
-        if not is_master_admin(user_id):
-            await query.edit_message_text("⛔ غير مصرح!")
-            return
-        
-        rule_num = data.replace("del_", "")
-        if rule_num in RULES:
-            del RULES[rule_num]
-            save_rules(RULES)
-            await query.edit_message_text(
-                f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
-                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
-                ])
-            )
-        else:
-            await query.edit_message_text("❌ الحكم غير موجود!")
-        return
-    
-    if data == "view_rules":
-        if not RULES:
-            await query.edit_message_text("📋 لا توجد أحكام حالياً!")
-            return
-        
-        rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
-        
-        if len(rules_text) > 4000:
-            rules_text = rules_text[:4000] + "\n\n... (تم اختصار القائمة)"
-        
-        await query.edit_message_text(
-            f"📋 *قائمة الأحكام:*\n\n{rules_text}\n\n📊 الإجمالي: {len(RULES)} حكم",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
-                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
-            ]),
-            parse_mode='Markdown'
-        )
-        return
-    
-    # ============ أزرار المجموعة ============
+    # ======== أزرار المجموعة ========
     if data == "group_settings":
         await group_settings(update, context)
         return
@@ -1041,28 +1067,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     if data.startswith("remove_group_admin_"):
-        # التحقق مما إذا كان زر حذف مشرف
         if data.startswith("remove_admin_"):
             await remove_admin_execute(update, context)
             return
         await remove_group_admin_start(update, context)
         return
     
-    # ============ أزرار التصدير والاستيراد ============
-    if data == "export_rules":
-        await export_rules(update, context)
-        return
-    
-    if data == "import_rules":
-        await import_rules_start(update, context)
-        return
-    
-    if data == "delete_all_rules":
-        await delete_all_rules(update, context)
-        return
-    
-    if data == "add_default_rules":
-        await add_default_rules(update, context)
+    if data.startswith("del_"):
+        rule_num = data.replace("del_", "")
+        if rule_num in RULES:
+            del RULES[rule_num]
+            save_rules(RULES)
+            await query.edit_message_text(
+                f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                ])
+            )
+        else:
+            await query.edit_message_text("❌ الحكم غير موجود!")
         return
 
 # ============ معالجة الرسائل ============
@@ -1155,47 +1179,28 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_type = update.effective_chat.type
     user_id = update.effective_user.id
     
+    msg = (
+        f"🎲 *لعبة النرد*\n\n"
+        f"📌 *الأوامر:*\n"
+        f"/start - بدء اللعبة\n"
+        f"/help - عرض المساعدة\n"
+        f"/cancel - إلغاء العملية\n\n"
+        f"🎮 *طريقة اللعب:*\n"
+        f"1️⃣ اضغط على 'ارمي النرد'\n"
+        f"2️⃣ شاهد النرد يتحرك!\n"
+        f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي من {rules_count} حكم\n"
+        f"4️⃣ استمتع باللعب!\n\n"
+    )
+    
     if chat_type == "private":
-        msg = (
-            f"🎲 *لعبة النرد*\n\n"
-            f"📌 *الأوامر:*\n"
-            f"/start - بدء اللعبة\n"
-            f"/help - عرض المساعدة\n"
-            f"/cancel - إلغاء العملية\n\n"
-            f"🎮 *طريقة اللعب:*\n"
-            f"1️⃣ اضغط على 'ارمي النرد'\n"
-            f"2️⃣ شاهد النرد يتحرك!\n"
-            f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي من {rules_count} حكم\n"
-            f"4️⃣ استمتع باللعب!\n\n"
-            f"⚙️ *للمشرفين:*\n"
-            f"• استخدم 'الإعدادات' لإدارة الأحكام\n"
-            f"• يمكنك إضافة أو حذف الأحكام بسهولة\n"
-            f"• تصدير الأحكام كملف TXT\n"
-            f"• استيراد أحكام من ملف TXT\n"
-            f"• حذف جميع الأحكام دفعة واحدة"
-        )
-        
         if is_master_admin(user_id):
-            msg += f"\n\n👑 *أنت مشرف أساسي*\n• لديك صلاحية كاملة\n• يمكنك إدارة المجموعات والمشرفين"
-    else:
-        is_admin = await is_group_admin(update, context)
-        msg = (
-            f"🎲 *لعبة النرد في المجموعة*\n\n"
-            f"📌 *الأوامر:*\n"
-            f"/start - بدء اللعبة\n"
-            f"/help - عرض المساعدة\n\n"
-            f"🎮 *طريقة اللعب:*\n"
-            f"1️⃣ اضغط على 'ارمي النرد'\n"
-            f"2️⃣ شاهد النرد يتحرك!\n"
-            f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي من {rules_count} حكم\n"
-            f"4️⃣ استمتع باللعب!\n\n"
-        )
-        
-        if is_admin:
-            msg += f"⚙️ *للمشرفين:*\n• استخدم 'إعدادات المجموعة' لإدارة البوت\n• تفعيل/تعطيل البوت في المجموعة"
-        
-        if is_master_admin(user_id):
-            msg += f"\n\n👑 *أنت مشرف أساسي*\n• لديك صلاحية كاملة على البوت"
+            msg += (
+                f"👑 *أنت مشرف أساسي*\n"
+                f"• لديك صلاحية كاملة على البوت\n"
+                f"• يمكنك إدارة الأحكام والمجموعات\n\n"
+            )
+        else:
+            msg += f"💡 *ملاحظة:* يمكنك اللعب فقط، الإعدادات للمشرفين.\n\n"
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -1230,7 +1235,6 @@ def main():
     print("🤖 البوت يعمل...")
     print(f"📜 عدد الأحكام المحملة: {len(RULES)}")
     print(f"👑 عدد المشرفين الأساسيين: {len(MASTER_ADMINS)}")
-    print(f"👑 معرفات المشرفين الأساسيين: {MASTER_ADMINS}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
