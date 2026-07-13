@@ -53,13 +53,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
-    
     await update.message.reply_text(
-        f"🎲 مرحباً بك في لعبة النرد!\n"
-        f"اضغط على الزر لرمي النرد ومعرفة الحكم.\n\n"
-        f"📜 الأحكام الحالية:\n{rules_text}",
-        reply_markup=reply_markup
+        f"🎲 *مرحباً بك في لعبة النرد!*\n\n"
+        f"اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
+        f"💡 الأحكام تظهر فقط عند اللعب!",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 # معالجة ضغط الأزرار
@@ -189,13 +188,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
-        
         await query.edit_message_text(
-            f"🎲 مرحباً بك في لعبة النرد!\n"
-            f"اضغط على الزر لرمي النرد ومعرفة الحكم.\n\n"
-            f"📜 الأحكام الحالية:\n{rules_text}",
-            reply_markup=reply_markup
+            f"🎲 *مرحباً بك في لعبة النرد!*\n\n"
+            f"اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
+            f"💡 الأحكام تظهر فقط عند اللعب!",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
 
 # معالجة الرسائل النصية
@@ -259,14 +257,18 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # أمر /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rules_text = "\n".join([f"{k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
     await update.message.reply_text(
-        f"🎲 *كيفية اللعب:*\n"
-        f"اضغط على زر 'ارمي النرد' وسيظهر لك رقم وحكم.\n\n"
-        f"📜 *الأحكام الحالية:*\n{rules_text}\n\n"
-        f"🔹 *للمشرفين:*\n"
+        f"🎲 *كيفية اللعب:*\n\n"
+        f"1️⃣ اضغط على زر '🎲 ارمي النرد'\n"
+        f"2️⃣ سيظهر لك رقم وحكم عشوائي\n"
+        f"3️⃣ استمتع باللعب!\n\n"
+        f"⚙️ *للمشرفين:*\n"
         f"• استخدم زر 'الإعدادات' لإدارة الأحكام\n"
-        f"• يمكنك إضافة أو حذف الأحكام بسهولة",
+        f"• يمكنك إضافة أو حذف الأحكام بسهولة\n\n"
+        f"📌 *الأوامر المتاحة:*\n"
+        f"/start - بدء اللعبة\n"
+        f"/help - عرض المساعدة\n"
+        f"/cancel - إلغاء العملية الجارية",
         parse_mode='Markdown'
     )
 
