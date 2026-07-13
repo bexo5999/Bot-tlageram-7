@@ -100,6 +100,7 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
     
+    # تأثير الحركة (تغيير الإيموجي بسرعة)
     for _ in range(3):
         temp_dice = random.choice(list(DICE_EMOJIS.values()))
         await query.edit_message_text(
@@ -109,10 +110,14 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         await asyncio.sleep(0.2)
     
+    # رقم النرد (من 1 إلى 6 فقط للعرض)
     dice_number = random.randint(1, 6)
     dice_emoji = DICE_EMOJIS[str(dice_number)]
-    rule_key = random.choice(list(RULES.keys()))
-    rule = RULES[rule_key]
+    
+    # 🔥 الأهم: اختيار حكم عشوائي من جميع الأحكام (بغض النظر عن الرقم)
+    all_rules_keys = list(RULES.keys())  # كل الأرقام (1 إلى 1000)
+    rule_key = random.choice(all_rules_keys)  # اختيار رقم عشوائي
+    rule = RULES[rule_key]  # الحكم
     
     message = (
         f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
@@ -158,7 +163,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ============ تصدير الأحكام كملف TXT ============
+# ============ تصدير الأحكام ============
 async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -177,7 +182,7 @@ async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     content += "=" * 40 + "\n\n"
     
     for num, text in sorted(RULES.items(), key=lambda x: int(x[0])):
-        content += f"{num}. {text}\n"
+        content += f"{num}: {text}\n"
     
     content += f"\nإجمالي الأحكام: {len(RULES)}"
     
@@ -195,7 +200,7 @@ async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.delete_message()
 
-# ============ استيراد الأحكام من ملف TXT ============
+# ============ استيراد الأحكام ============
 async def import_rules_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -263,15 +268,6 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     new_rules[num] = rule_text
                 else:
                     errors.append(line)
-            elif '-' in line:
-                parts = line.split('-', 1)
-                num = parts[0].strip()
-                rule_text = parts[1].strip()
-                
-                if num.isdigit() and rule_text:
-                    new_rules[num] = rule_text
-                else:
-                    errors.append(line)
             else:
                 errors.append(line)
         
@@ -296,11 +292,7 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result_msg += f"📊 إجمالي الأحكام: *{len(RULES)}*\n\n"
         
         if errors:
-            result_msg += f"⚠️ *تم تخطي {len(errors)} سطر غير صالح:*\n"
-            for err in errors[:5]:
-                result_msg += f"• {err}\n"
-            if len(errors) > 5:
-                result_msg += f"• ... و {len(errors) - 5} سطر أخرى\n"
+            result_msg += f"⚠️ *تم تخطي {len(errors)} سطر غير صالح*\n"
         
         await update.message.reply_text(result_msg, parse_mode='Markdown')
         
@@ -381,11 +373,7 @@ async def add_default_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "3": "💃 ارقص لمدة 30 ثانية",
         "4": "📖 احكي نكتة مضحكة",
         "5": "🤝 صافح أقرب شخص إليك بحرارة",
-        "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً",
-        "7": "😈 قول أمنية مستحيلة",
-        "8": "🎤 غني أغنية من اختيارك",
-        "9": "🤪 اعمل وجه مضحك لمدة 10 ثواني",
-        "10": "💪 اعمل 10 تمارين ضغط"
+        "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً"
     }
     
     added = 0
@@ -432,7 +420,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_delete_all(update, context)
         return
     
-    # ============ الإعدادات ============
     if data == "settings":
         if int(user_id) not in ADMIN_IDS:
             await query.edit_message_text(
@@ -563,7 +550,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await add_default_rules(update, context)
         return
 
-# ============ معالجة الرسائل النصية والملفات ============
+# ============ معالجة الرسائل ============
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     
@@ -586,7 +573,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         if text in RULES:
-            await update.message.reply_text(f"❌ الحكم رقم {text} موجود مسبقاً!\nالحكم الحالي: {RULES[text]}")
+            await update.message.reply_text(f"❌ الحكم رقم {text} موجود مسبقاً!")
             return
         
         context.user_data['rule_number'] = text
@@ -601,9 +588,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rule_number = context.user_data.get('rule_number')
         
         if rule_number in RULES:
-            await update.message.reply_text(
-                f"❌ الحكم رقم {rule_number} موجود مسبقاً!\nالحكم الحالي: {RULES[rule_number]}"
-            )
+            await update.message.reply_text(f"❌ الحكم رقم {rule_number} موجود مسبقاً!")
             del waiting_for_rule[user_id]
             return
         
@@ -650,16 +635,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🎮 *طريقة اللعب:*\n"
         f"1️⃣ اضغط على 'ارمي النرد'\n"
         f"2️⃣ شاهد النرد يتحرك!\n"
-        f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي\n"
+        f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي من {rules_count} حكم\n"
         f"4️⃣ استمتع باللعب!\n\n"
-        f"📜 *عدد الأحكام:* {rules_count}\n\n"
         f"⚙️ *للمشرفين:*\n"
         f"• استخدم 'الإعدادات' لإدارة الأحكام\n"
         f"• يمكنك إضافة أو حذف الأحكام بسهولة\n"
         f"• تصدير الأحكام كملف TXT\n"
         f"• استيراد أحكام من ملف TXT\n"
-        f"• حذف جميع الأحكام دفعة واحدة\n"
-        f"• إضافة أحكام افتراضية",
+        f"• حذف جميع الأحكام دفعة واحدة",
         parse_mode='Markdown'
     )
 
