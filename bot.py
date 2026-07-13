@@ -3,6 +3,7 @@ import logging
 import os
 import json
 import sqlite3
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -42,7 +43,13 @@ def load_rules():
             "3": "💃 ارقص لمدة 30 ثانية",
             "4": "📖 احكي نكتة مضحكة",
             "5": "🤝 صافح أقرب شخص إليك بحرارة",
-            "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً"
+            "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً",
+            "7": "😈 قول أمنية مستحيلة",
+            "8": "🎤 غني أغنية من اختيارك",
+            "9": "🤪 اعمل وجه مضحك لمدة 10 ثواني",
+            "10": "💪 اعمل 10 تمارين ضغط",
+            "11": "📞 اتصل بصديق وقل له نكتة",
+            "12": "🕺 ارقص على أنغام وهمية"
         }
         save_rules(default_rules)
         return default_rules
@@ -63,38 +70,112 @@ RULES = load_rules()
 waiting_for_rule = {}
 ADMIN_IDS = [8798182716, 8916460129]  # معرفات المشرفين
 
+# ============ إيموجي النرد حسب الرقم ============
+DICE_EMOJIS = {
+    "1": "⚀",
+    "2": "⚁",
+    "3": "⚂",
+    "4": "⚃",
+    "5": "⚄",
+    "6": "⚅"
+}
+
 # ============ دالة /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll")],
+        [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
         [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "🎲 مرحباً بك في لعبة النرد!\n\n"
+        "🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
         "اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
         "💡 الأحكام تظهر فقط عند اللعب!",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
-# ============ رمي النرد ============
-async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ============ عرض النرد المتحرك ============
+async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إظهار النرد المتحرك"""
+    query = update.callback_query
+    await query.answer()
+    
+    # إرسال ملصق النرد المتحرك (إيموجي النرد)
+    dice_message = await query.edit_message_text(
+        "🎲 *جاري رمي النرد...* 🎲\n\n"
+        "⚀ ⚁ ⚂ ⚃ ⚄ ⚅",
+        parse_mode='Markdown'
+    )
+    
+    # تأثير الحركة (تغيير الإيموجي بسرعة)
+    for _ in range(3):
+        temp_dice = random.choice(list(DICE_EMOJIS.values()))
+        await query.edit_message_text(
+            f"🎲 *جاري رمي النرد...* 🎲\n\n"
+            f"{temp_dice} {random.choice(list(DICE_EMOJIS.values()))} {random.choice(list(DICE_EMOJIS.values()))}",
+            parse_mode='Markdown'
+        )
+        await asyncio.sleep(0.2)
+    
+    # اختيار الرقم النهائي
+    dice_number = random.choice(list(RULES.keys()))
+    rule = RULES[dice_number]
+    
+    # إيموجي النرد المناسب
+    dice_emoji = DICE_EMOJIS.get(dice_number, "🎲")
+    
+    # عرض النتيجة النهائية
+    message = (
+        f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
+        f"📜 *الحكم:* {rule}\n\n"
+        f"💫 حظ سعيد!"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ رمي النرد (بدون حركة - النسخة البسيطة) ============
+async def roll_dice_simple(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نسخة بسيطة بدون حركة (احتياطي)"""
     query = update.callback_query
     await query.answer()
     
     dice_number = random.choice(list(RULES.keys()))
     rule = RULES[dice_number]
+    dice_emoji = DICE_EMOJIS.get(dice_number, "🎲")
     
-    message = f"🎲 رقم النرد: {dice_number}\n\n📜 الحكم: {rule}"
+    message = (
+        f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
+        f"📜 *الحكم:* {rule}"
+    )
     
     keyboard = [
-        [InlineKeyboardButton("🎲 أعد الرمي", callback_data="roll")],
+        [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
         [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await query.edit_message_text(message, reply_markup=reply_markup)
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ رمي النرد (مع حركة) ============
+async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """الدالة الرئيسية لرمي النرد مع حركة"""
+    await show_dice_animation(update, context)
 
 # ============ العودة للقائمة الرئيسية ============
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -102,16 +183,17 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     keyboard = [
-        [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll")],
+        [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
         [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.edit_message_text(
-        "🎲 مرحباً بك في لعبة النرد!\n\n"
+        "🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
         "اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
         "💡 الأحكام تظهر فقط عند اللعب!",
-        reply_markup=reply_markup
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
     )
 
 # ============ معالجة الأزرار ============
@@ -150,8 +232,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            "⚙️ لوحة التحكم\n\nاختر الإجراء الذي تريده:",
-            reply_markup=reply_markup
+            "⚙️ *لوحة التحكم*\n\nاختر الإجراء الذي تريده:",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
         return
     
@@ -163,10 +246,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         waiting_for_rule[user_id] = "waiting_for_rule_number"
         
         await query.edit_message_text(
-            "✏️ إضافة حكم جديد\n\n"
+            "✏️ *إضافة حكم جديد*\n\n"
             "أرسل رقم الحكم أولاً (مثال: 7)\n"
             "ثم سأطلب منك كتابة الحكم.\n\n"
-            "🔙 لإلغاء العملية أرسل /cancel"
+            "🔙 لإلغاء العملية أرسل /cancel",
+            parse_mode='Markdown'
         )
         return
     
@@ -185,8 +269,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            "🗑️ اختر الحكم الذي تريد حذفه:",
-            reply_markup=reply_markup
+            "🗑️ *اختر الحكم الذي تريد حذفه:*",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
         return
     
@@ -217,11 +302,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
         await query.edit_message_text(
-            f"📋 قائمة الأحكام:\n\n{rules_text}",
+            f"📋 *قائمة الأحكام:*\n\n{rules_text}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
                 [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
-            ])
+            ]),
+            parse_mode='Markdown'
         )
         return
 
@@ -247,7 +333,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         waiting_for_rule[user_id] = "waiting_for_rule_text"
         
         await update.message.reply_text(
-            f"✅ تم استلام الرقم {text}\n\n✏️ الآن أرسل نص الحكم:"
+            f"✅ تم استلام الرقم *{text}*\n\n✏️ الآن أرسل نص الحكم:",
+            parse_mode='Markdown'
         )
     
     elif state == "waiting_for_rule_text":
@@ -267,9 +354,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         
         await update.message.reply_text(
-            f"✅ تم إضافة الحكم بنجاح!\n\n"
+            f"✅ *تم إضافة الحكم بنجاح!*\n\n"
             f"📌 الرقم: {rule_number}\n"
-            f"📜 الحكم: {text}"
+            f"📜 الحكم: {text}",
+            parse_mode='Markdown'
         )
 
 # ============ أوامر البوت ============
@@ -284,18 +372,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎲 لعبة النرد\n\n"
-        "📌 الأوامر:\n"
+        "🎲 *لعبة النرد*\n\n"
+        "📌 *الأوامر:*\n"
         "/start - بدء اللعبة\n"
         "/help - عرض المساعدة\n"
         "/cancel - إلغاء العملية\n\n"
-        "🎮 طريقة اللعب:\n"
+        "🎮 *طريقة اللعب:*\n"
         "1️⃣ اضغط على 'ارمي النرد'\n"
-        "2️⃣ سيظهر لك رقم وحكم عشوائي\n"
-        "3️⃣ استمتع باللعب!\n\n"
-        "⚙️ للمشرفين:\n"
+        "2️⃣ شاهد النرد يتحرك!\n"
+        "3️⃣ سيظهر لك رقم وحكم عشوائي\n"
+        "4️⃣ استمتع باللعب!\n\n"
+        "⚙️ *للمشرفين:*\n"
         "• استخدم 'الإعدادات' لإدارة الأحكام\n"
-        "• يمكنك إضافة أو حذف الأحكام بسهولة"
+        "• يمكنك إضافة أو حذف الأحكام بسهولة",
+        parse_mode='Markdown'
     )
 
 # ============ معالج الأخطاء ============
