@@ -53,7 +53,7 @@ GAMES = load_games()
 waiting_for_rule = {}
 ADMIN_IDS = ["8798182716", "8916460129"]
 
-# ============ دالة /start (الأساسية) ============
+# ============ دالة /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll_single")],
@@ -139,11 +139,21 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     username = update.message.from_user.username or user_id
     
+    # استخراج معرف الغرفة من الأمر
     text = update.message.text
-    game_id = text.replace("/join_", "").strip()
+    if text.startswith("/join_"):
+        game_id = text.replace("/join_", "").strip()
+    else:
+        await update.message.reply_text("❌ استخدام خاطئ! استخدم /join_[رقم الغرفة]")
+        return
     
+    # التحقق من وجود الغرفة
     if game_id not in GAMES:
-        await update.message.reply_text("❌ هذه الغرفة غير موجودة!")
+        await update.message.reply_text(
+            f"❌ الغرفة `{game_id}` غير موجودة!\n"
+            f"تأكد من الرقم وأعد المحاولة.",
+            parse_mode='Markdown'
+        )
         return
     
     game = GAMES[game_id]
@@ -160,22 +170,38 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ الغرفة ممتلئة! (حد أقصى 2 لاعبين)")
         return
     
+    # إضافة اللاعب
     game["players"].append(user_id)
     game["players_names"].append(username)
     game["scores"][user_id] = 0
     
     if len(game["players"]) == 2:
-        game["current_turn"] = 0
+        game["current_turn"] = 0  # دور اللاعب الأول
     
     save_games(GAMES)
     
+    # إرسال رسالة للاعب المنضم
     await update.message.reply_text(
-        f"✅ *تم الانضمام للغرفة!*\n\n"
+        f"✅ *تم الانضمام للغرفة بنجاح!*\n\n"
         f"🎮 معرف الغرفة: `{game_id}`\n"
         f"👤 اللاعبين:\n" + 
         "\n".join([f"• @{name}" for name in game["players_names"]]) +
-        f"\n\n🎯 اضغط على 'رمي النرد' للبدء!"
+        f"\n\n🎯 انتظر دورك للعب!",
+        parse_mode='Markdown'
     )
+    
+    # إرسال إشعار لمنشئ الغرفة
+    try:
+        creator_id = game["creator"]
+        await context.bot.send_message(
+            chat_id=creator_id,
+            text=f"👤 *انضم لاعب جديد!*\n\n"
+                 f"@@{username} انضم للغرفة `{game_id}`\n"
+                 f"الآن يمكنك البدء باللعب!",
+            parse_mode='Markdown'
+        )
+    except:
+        pass
 
 # ============ رمي النرد في اللعبة الزوجية ============
 async def roll_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
@@ -198,6 +224,7 @@ async def roll_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id)
         await query.edit_message_text("❌ أنت لست في هذه اللعبة!")
         return
     
+    # التحقق من الدور
     current_player_id = game["players"][game["current_turn"]]
     if user_id != current_player_id:
         current_name = game["players_names"][game["current_turn"]]
@@ -206,15 +233,20 @@ async def roll_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id)
         )
         return
     
+    # رمي النرد
     dice_number = random.choice(list(RULES.keys()))
     rule = RULES[dice_number]
     
+    # زيادة النقاط
     game["scores"][user_id] = game["scores"].get(user_id, 0) + 1
+    
+    # تغيير الدور
     game["current_turn"] = (game["current_turn"] + 1) % len(game["players"])
     next_player = game["players_names"][game["current_turn"]]
     
     save_games(GAMES)
     
+    # عرض النتيجة
     players_info = ""
     for i, name in enumerate(game["players_names"]):
         pid = game["players"][i]
@@ -278,9 +310,11 @@ async def share_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id
     
     await query.edit_message_text(
         f"🔗 *رابط الدعوة للغرفة*\n\n"
-        f"أرسل هذا الرابط لأصدقائك:\n"
+        f"انسخ هذا الرابط وأرسله لصديقك:\n"
         f"`/join_{game_id}`\n\n"
-        f"👤 اللاعب الحالي: انتظر حتى ينضم لاعب آخر",
+        f"أو اضغط على الرابط:\n"
+        f"https://t.me/{(await context.bot.get_me()).username}?start=join_{game_id}\n\n"
+        f"👤 انتظر حتى ينضم لاعب آخر للبدء",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🎲 العودة للعبة", callback_data=f"roll_game_{game_id}")]
@@ -300,6 +334,7 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     game["active"] = False
     save_games(GAMES)
     
+    # تحديد الفائز
     max_score = -1
     winner = ""
     for i, pid in enumerate(game["players"]):
@@ -340,6 +375,22 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+
+# ============ معالجة بدء اللعبة عبر الرابط ============
+async def start_with_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # معالجة /start join_1234
+    text = update.message.text
+    if " " in text:
+        args = text.split(" ", 1)
+        if len(args) > 1 and args[1].startswith("join_"):
+            game_id = args[1].replace("join_", "").strip()
+            # محاكاة أمر الانضمام
+            update.message.text = f"/join_{game_id}"
+            await join_game(update, context)
+            return
+    
+    # إذا لم يكن هناك أمر انضمام، أظهر القائمة الرئيسية
+    await start(update, context)
 
 # ============ معالجة الأزرار الرئيسية ============
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -577,7 +628,8 @@ def main():
     
     application = Application.builder().token(TOKEN).build()
     
-    application.add_handler(CommandHandler("start", start))
+    # إضافة المعالجات
+    application.add_handler(CommandHandler("start", start_with_join))  # معالجة start مع join
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CallbackQueryHandler(button_handler))
