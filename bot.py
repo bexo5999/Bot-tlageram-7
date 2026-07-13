@@ -1,6 +1,6 @@
 import random
-import os
 import logging
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
@@ -9,16 +9,17 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 
 # قائمة الأحكام حسب الرقم
 RULES = {
-    1: "⚠️ اطلب من شخص أن يغني أغنية طفولية",
+    1: "رئيج بيه",
     2: "😂 اضحك بصوت عالٍ لمدة 10 ثوانٍ",
     3: "💃 ارقص لمدة 30 ثانية",
     4: "📖 احكي نكتة مضحكة",
     5: "🤝 صافح أقرب شخص إليك بحرارة",
     6: "🌶️ اشرب ماء حار أو تناول شيئاً حاراً"
+    7:"طلعي طيزج" 
+    8:"طلعي صدرج"
+    9:"لعبي الي بحلك"
+   10:"احجي سوالف فساد"
 }
-
-# متغير لتخزين حالة اللاعبين (اختياري)
-user_data = {}
 
 # أمر /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -76,9 +77,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # الدالة الرئيسية
 def main():
-    # استخدم توكن البوت الخاص بك
-    
-TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+    # استخدم التوكن من المتغيرات البيئية
+    TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
     
     # إنشاء التطبيق
     application = Application.builder().token(TOKEN).build()
