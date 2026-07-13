@@ -64,7 +64,7 @@ RULES = load_rules()
 
 waiting_for_rule = {}
 waiting_for_import = {}
-ADMIN_IDS = [8798182716, 8916460129]  # معرفات المشرفين
+ADMIN_IDS = [8798182716, 8916460129]
 
 # ============ إيموجي النرد حسب الرقم ============
 DICE_EMOJIS = {
@@ -173,7 +173,6 @@ async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📋 لا توجد أحكام لتصديرها!")
         return
     
-    # إنشاء محتوى الملف
     content = "📜 قائمة الأحكام\n"
     content += "=" * 40 + "\n\n"
     
@@ -182,7 +181,6 @@ async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     content += f"\nإجمالي الأحكام: {len(RULES)}"
     
-    # إرسال الملف
     file = io.BytesIO(content.encode('utf-8'))
     file.name = f"rules_export_{len(RULES)}.txt"
     
@@ -214,11 +212,9 @@ async def import_rules_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "📥 *استيراد الأحكام من ملف TXT*\n\n"
         "أرسل ملف TXT يحتوي على الأحكام.\n"
         "صيغة الملف:\n"
-        "```
-        1: نص الحكم الأول
-        2: نص الحكم الثاني
-        3: نص الحكم الثالث
-        ```\n\n"
+        "1: نص الحكم الأول\n"
+        "2: نص الحكم الثاني\n"
+        "3: نص الحكم الثالث\n\n"
         "🔙 لإلغاء العملية أرسل /cancel",
         parse_mode='Markdown'
     )
@@ -233,19 +229,16 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if user_id not in waiting_for_import:
         return
     
-    # التحقق من وجود ملف
     if not update.message.document:
         await update.message.reply_text("❌ الرجاء إرسال ملف TXT!")
         return
     
     document = update.message.document
     
-    # التحقق من نوع الملف
     if not document.file_name.endswith('.txt'):
         await update.message.reply_text("❌ الرجاء إرسال ملف بصيغة TXT فقط!")
         return
     
-    # تحميل الملف
     file = await context.bot.get_file(document.file_id)
     file_content = await file.download_as_bytearray()
     
@@ -261,7 +254,6 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if not line:
                 continue
             
-            # تنسيق: رقم: نص الحكم
             if ':' in line:
                 parts = line.split(':', 1)
                 num = parts[0].strip()
@@ -291,7 +283,6 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
             del waiting_for_import[user_id]
             return
         
-        # إضافة الأحكام الجديدة
         added = 0
         for num, rule_text in new_rules.items():
             if num not in RULES:
@@ -300,7 +291,6 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         save_rules(RULES)
         
-        # رسالة النتيجة
         result_msg = f"✅ *تم استيراد الأحكام بنجاح!*\n\n"
         result_msg += f"📥 تم إضافة *{added}* حكم جديد\n"
         result_msg += f"📊 إجمالي الأحكام: *{len(RULES)}*\n\n"
@@ -442,7 +432,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_delete_all(update, context)
         return
     
-    # ============ الإعدادات (للمشرفين فقط) ============
+    # ============ الإعدادات ============
     if data == "settings":
         if int(user_id) not in ADMIN_IDS:
             await query.edit_message_text(
@@ -544,7 +534,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
         
-        # تقسيم النص إذا كان طويلاً
         if len(rules_text) > 4000:
             rules_text = rules_text[:4000] + "\n\n... (تم اختصار القائمة)"
         
@@ -578,12 +567,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     
-    # معالجة الملفات المستوردة
     if update.message.document:
         await handle_file_import(update, context)
         return
     
-    # إدارة الأحكام للمشرفين
     if int(user_id) not in ADMIN_IDS:
         return
     
@@ -696,19 +683,12 @@ def main():
     
     application = Application.builder().token(TOKEN).build()
     
-    # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel))
-    
-    # معالج الأزرار
     application.add_handler(CallbackQueryHandler(button_handler))
-    
-    # معالج الرسائل النصية والملفات
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
-    
-    # معالج الأخطاء
     application.add_error_handler(error_handler)
     
     print("🤖 البوت يعمل...")
