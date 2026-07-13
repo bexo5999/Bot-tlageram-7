@@ -4,6 +4,7 @@ import os
 import json
 import sqlite3
 import asyncio
+import io
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -30,7 +31,7 @@ def init_db():
 def load_rules():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("SELECT number, text FROM rules")
+    c.execute("SELECT number, text FROM rules ORDER BY CAST(number AS INTEGER)")
     rows = c.fetchall()
     conn.close()
     
@@ -43,13 +44,7 @@ def load_rules():
             "3": "💃 ارقص لمدة 30 ثانية",
             "4": "📖 احكي نكتة مضحكة",
             "5": "🤝 صافح أقرب شخص إليك بحرارة",
-            "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً",
-            "7": "😈 قول أمنية مستحيلة",
-            "8": "🎤 غني أغنية من اختيارك",
-            "9": "🤪 اعمل وجه مضحك لمدة 10 ثواني",
-            "10": "💪 اعمل 10 تمارين ضغط",
-            "11": "📞 اتصل بصديق وقل له نكتة",
-            "12": "🕺 ارقص على أنغام وهمية"
+            "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً"
         }
         save_rules(default_rules)
         return default_rules
@@ -68,6 +63,7 @@ init_db()
 RULES = load_rules()
 
 waiting_for_rule = {}
+waiting_for_import = {}
 ADMIN_IDS = [8798182716, 8916460129]  # معرفات المشرفين
 
 # ============ إيموجي النرد حسب الرقم ============
@@ -88,28 +84,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    rules_count = len(RULES)
+    
     await update.message.reply_text(
-        "🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
-        "اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
-        "💡 الأحكام تظهر فقط عند اللعب!",
+        f"🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
+        f"اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
+        f"📜 عدد الأحكام المتاحة: *{rules_count}* حكم\n"
+        f"💡 الأحكام تظهر فقط عند اللعب!",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
 
 # ============ عرض النرد المتحرك ============
 async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إظهار النرد المتحرك"""
     query = update.callback_query
     await query.answer()
     
-    # إرسال ملصق النرد المتحرك (إيموجي النرد)
-    dice_message = await query.edit_message_text(
-        "🎲 *جاري رمي النرد...* 🎲\n\n"
-        "⚀ ⚁ ⚂ ⚃ ⚄ ⚅",
-        parse_mode='Markdown'
-    )
-    
-    # تأثير الحركة (تغيير الإيموجي بسرعة)
     for _ in range(3):
         temp_dice = random.choice(list(DICE_EMOJIS.values()))
         await query.edit_message_text(
@@ -119,14 +109,11 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         await asyncio.sleep(0.2)
     
-    # اختيار الرقم النهائي
-    dice_number = random.choice(list(RULES.keys()))
-    rule = RULES[dice_number]
+    dice_number = random.randint(1, 6)
+    dice_emoji = DICE_EMOJIS[str(dice_number)]
+    rule_key = random.choice(list(RULES.keys()))
+    rule = RULES[rule_key]
     
-    # إيموجي النرد المناسب
-    dice_emoji = DICE_EMOJIS.get(dice_number, "🎲")
-    
-    # عرض النتيجة النهائية
     message = (
         f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
         f"📜 *الحكم:* {rule}\n\n"
@@ -145,36 +132,8 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode='Markdown'
     )
 
-# ============ رمي النرد (بدون حركة - النسخة البسيطة) ============
-async def roll_dice_simple(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نسخة بسيطة بدون حركة (احتياطي)"""
-    query = update.callback_query
-    await query.answer()
-    
-    dice_number = random.choice(list(RULES.keys()))
-    rule = RULES[dice_number]
-    dice_emoji = DICE_EMOJIS.get(dice_number, "🎲")
-    
-    message = (
-        f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
-        f"📜 *الحكم:* {rule}"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
-        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        message,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-# ============ رمي النرد (مع حركة) ============
+# ============ رمي النرد ============
 async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """الدالة الرئيسية لرمي النرد مع حركة"""
     await show_dice_animation(update, context)
 
 # ============ العودة للقائمة الرئيسية ============
@@ -188,13 +147,280 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    rules_count = len(RULES)
+    
     await query.edit_message_text(
-        "🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
-        "اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
-        "💡 الأحكام تظهر فقط عند اللعب!",
+        f"🎲 *مرحباً بك في لعبة النرد!* 🎲\n\n"
+        f"اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
+        f"📜 عدد الأحكام المتاحة: *{rules_count}* حكم\n"
+        f"💡 الأحكام تظهر فقط عند اللعب!",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
+
+# ============ تصدير الأحكام كملف TXT ============
+async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    if not RULES:
+        await query.edit_message_text("📋 لا توجد أحكام لتصديرها!")
+        return
+    
+    # إنشاء محتوى الملف
+    content = "📜 قائمة الأحكام\n"
+    content += "=" * 40 + "\n\n"
+    
+    for num, text in sorted(RULES.items(), key=lambda x: int(x[0])):
+        content += f"{num}. {text}\n"
+    
+    content += f"\nإجمالي الأحكام: {len(RULES)}"
+    
+    # إرسال الملف
+    file = io.BytesIO(content.encode('utf-8'))
+    file.name = f"rules_export_{len(RULES)}.txt"
+    
+    await query.edit_message_text("📤 جاري تصدير الأحكام...")
+    
+    await context.bot.send_document(
+        chat_id=user_id,
+        document=file,
+        filename=f"rules_export_{len(RULES)}.txt",
+        caption=f"✅ تم تصدير {len(RULES)} حكم بنجاح!"
+    )
+    
+    await query.delete_message()
+
+# ============ استيراد الأحكام من ملف TXT ============
+async def import_rules_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    waiting_for_import[user_id] = True
+    
+    await query.edit_message_text(
+        "📥 *استيراد الأحكام من ملف TXT*\n\n"
+        "أرسل ملف TXT يحتوي على الأحكام.\n"
+        "صيغة الملف:\n"
+        "```
+        1: نص الحكم الأول
+        2: نص الحكم الثاني
+        3: نص الحكم الثالث
+        ```\n\n"
+        "🔙 لإلغاء العملية أرسل /cancel",
+        parse_mode='Markdown'
+    )
+
+# ============ معالجة استيراد الملف ============
+async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.message.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        return
+    
+    if user_id not in waiting_for_import:
+        return
+    
+    # التحقق من وجود ملف
+    if not update.message.document:
+        await update.message.reply_text("❌ الرجاء إرسال ملف TXT!")
+        return
+    
+    document = update.message.document
+    
+    # التحقق من نوع الملف
+    if not document.file_name.endswith('.txt'):
+        await update.message.reply_text("❌ الرجاء إرسال ملف بصيغة TXT فقط!")
+        return
+    
+    # تحميل الملف
+    file = await context.bot.get_file(document.file_id)
+    file_content = await file.download_as_bytearray()
+    
+    try:
+        text = file_content.decode('utf-8')
+        lines = text.strip().split('\n')
+        
+        new_rules = {}
+        errors = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # تنسيق: رقم: نص الحكم
+            if ':' in line:
+                parts = line.split(':', 1)
+                num = parts[0].strip()
+                rule_text = parts[1].strip()
+                
+                if num.isdigit() and rule_text:
+                    new_rules[num] = rule_text
+                else:
+                    errors.append(line)
+            elif '-' in line:
+                parts = line.split('-', 1)
+                num = parts[0].strip()
+                rule_text = parts[1].strip()
+                
+                if num.isdigit() and rule_text:
+                    new_rules[num] = rule_text
+                else:
+                    errors.append(line)
+            else:
+                errors.append(line)
+        
+        if not new_rules:
+            await update.message.reply_text(
+                "❌ لم يتم العثور على أحكام صالحة!\n"
+                "تأكد من الصيغة: رقم: نص الحكم"
+            )
+            del waiting_for_import[user_id]
+            return
+        
+        # إضافة الأحكام الجديدة
+        added = 0
+        for num, rule_text in new_rules.items():
+            if num not in RULES:
+                RULES[num] = rule_text
+                added += 1
+        
+        save_rules(RULES)
+        
+        # رسالة النتيجة
+        result_msg = f"✅ *تم استيراد الأحكام بنجاح!*\n\n"
+        result_msg += f"📥 تم إضافة *{added}* حكم جديد\n"
+        result_msg += f"📊 إجمالي الأحكام: *{len(RULES)}*\n\n"
+        
+        if errors:
+            result_msg += f"⚠️ *تم تخطي {len(errors)} سطر غير صالح:*\n"
+            for err in errors[:5]:
+                result_msg += f"• {err}\n"
+            if len(errors) > 5:
+                result_msg += f"• ... و {len(errors) - 5} سطر أخرى\n"
+        
+        await update.message.reply_text(result_msg, parse_mode='Markdown')
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
+    
+    del waiting_for_import[user_id]
+
+# ============ حذف جميع الأحكام ============
+async def delete_all_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    if not RULES:
+        await query.edit_message_text("📋 لا توجد أحكام لحذفها!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ نعم، احذف الكل", callback_data="confirm_delete_all")],
+        [InlineKeyboardButton("❌ لا، إلغاء", callback_data="settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"⚠️ *تحذير!*\n\n"
+        f"أنت على وشك حذف جميع الأحكام (*{len(RULES)}* حكم)\n\n"
+        f"هل أنت متأكد؟",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ تأكيد حذف الكل ============
+async def confirm_delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    global RULES
+    RULES = {}
+    save_rules(RULES)
+    
+    await query.edit_message_text(
+        "🗑️ *تم حذف جميع الأحكام بنجاح!*\n\n"
+        "📊 إجمالي الأحكام: 0\n\n"
+        "يمكنك إضافة أحكام جديدة من خلال الإعدادات.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔙 العودة للإعدادات", callback_data="settings")],
+            [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+        ]),
+        parse_mode='Markdown'
+    )
+
+# ============ إضافة أحكام افتراضية ============
+async def add_default_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    
+    if int(user_id) not in ADMIN_IDS:
+        await query.edit_message_text("⛔ غير مصرح!")
+        return
+    
+    default_rules = {
+        "1": "رئيج بيه",
+        "2": "😂 اضحك بصوت عالٍ لمدة 10 ثوانٍ",
+        "3": "💃 ارقص لمدة 30 ثانية",
+        "4": "📖 احكي نكتة مضحكة",
+        "5": "🤝 صافح أقرب شخص إليك بحرارة",
+        "6": "🌶️ اشرب ماء حار أو تناول شيئاً حاراً",
+        "7": "😈 قول أمنية مستحيلة",
+        "8": "🎤 غني أغنية من اختيارك",
+        "9": "🤪 اعمل وجه مضحك لمدة 10 ثواني",
+        "10": "💪 اعمل 10 تمارين ضغط"
+    }
+    
+    added = 0
+    for num, text in default_rules.items():
+        if num not in RULES:
+            RULES[num] = text
+            added += 1
+    
+    if added > 0:
+        save_rules(RULES)
+        await query.edit_message_text(
+            f"✅ *تم إضافة {added} حكم افتراضي!*\n\n"
+            f"📊 إجمالي الأحكام: *{len(RULES)}*",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة للإعدادات", callback_data="settings")]
+            ]),
+            parse_mode='Markdown'
+        )
+    else:
+        await query.edit_message_text(
+            "ℹ️ الأحكام الافتراضية موجودة مسبقاً!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة للإعدادات", callback_data="settings")]
+            ])
+        )
 
 # ============ معالجة الأزرار ============
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,6 +438,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_main(update, context)
         return
     
+    if data == "confirm_delete_all":
+        await confirm_delete_all(update, context)
+        return
+    
     # ============ الإعدادات (للمشرفين فقط) ============
     if data == "settings":
         if int(user_id) not in ADMIN_IDS:
@@ -227,12 +457,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("➕ إضافة حكم جديد", callback_data="add_rule")],
             [InlineKeyboardButton("🗑️ حذف حكم", callback_data="delete_rule")],
             [InlineKeyboardButton("📋 عرض جميع الأحكام", callback_data="view_rules")],
+            [InlineKeyboardButton("📤 تصدير الأحكام (TXT)", callback_data="export_rules")],
+            [InlineKeyboardButton("📥 استيراد أحكام (TXT)", callback_data="import_rules")],
+            [InlineKeyboardButton("🗑️ حذف جميع الأحكام", callback_data="delete_all_rules")],
+            [InlineKeyboardButton("📥 إضافة أحكام افتراضية", callback_data="add_default_rules")],
             [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
+        rules_count = len(RULES)
+        
         await query.edit_message_text(
-            "⚙️ *لوحة التحكم*\n\nاختر الإجراء الذي تريده:",
+            f"⚙️ *لوحة التحكم*\n\n"
+            f"📜 عدد الأحكام: *{rules_count}*\n\n"
+            f"اختر الإجراء الذي تريده:",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -259,10 +497,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text("⛔ غير مصرح!")
             return
         
+        if not RULES:
+            await query.edit_message_text("📋 لا توجد أحكام لحذفها!")
+            return
+        
         keyboard = []
         for num, rule in sorted(RULES.items(), key=lambda x: int(x[0])):
             keyboard.append([InlineKeyboardButton(
-                f"🗑️ {num}: {rule[:20]}...", 
+                f"🗑️ {num}: {rule[:25]}...", 
                 callback_data=f"del_{num}"
             )])
         keyboard.append([InlineKeyboardButton("🔙 العودة", callback_data="settings")])
@@ -301,8 +543,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         rules_text = "\n".join([f"• {k}: {v}" for k, v in sorted(RULES.items(), key=lambda x: int(x[0]))])
+        
+        # تقسيم النص إذا كان طويلاً
+        if len(rules_text) > 4000:
+            rules_text = rules_text[:4000] + "\n\n... (تم اختصار القائمة)"
+        
         await query.edit_message_text(
-            f"📋 *قائمة الأحكام:*\n\n{rules_text}",
+            f"📋 *قائمة الأحكام:*\n\n{rules_text}\n\n📊 الإجمالي: {len(RULES)} حكم",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
                 [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
@@ -310,11 +557,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
         return
+    
+    if data == "export_rules":
+        await export_rules(update, context)
+        return
+    
+    if data == "import_rules":
+        await import_rules_start(update, context)
+        return
+    
+    if data == "delete_all_rules":
+        await delete_all_rules(update, context)
+        return
+    
+    if data == "add_default_rules":
+        await add_default_rules(update, context)
+        return
 
-# ============ معالجة الرسائل النصية ============
+# ============ معالجة الرسائل النصية والملفات ============
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     
+    # معالجة الملفات المستوردة
+    if update.message.document:
+        await handle_file_import(update, context)
+        return
+    
+    # إدارة الأحكام للمشرفين
     if int(user_id) not in ADMIN_IDS:
         return
     
@@ -327,6 +596,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state == "waiting_for_rule_number":
         if not text.isdigit():
             await update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
+            return
+        
+        if text in RULES:
+            await update.message.reply_text(f"❌ الحكم رقم {text} موجود مسبقاً!\nالحكم الحالي: {RULES[text]}")
             return
         
         context.user_data['rule_number'] = text
@@ -356,35 +629,50 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ *تم إضافة الحكم بنجاح!*\n\n"
             f"📌 الرقم: {rule_number}\n"
-            f"📜 الحكم: {text}",
+            f"📜 الحكم: {text}\n\n"
+            f"📊 إجمالي الأحكام: *{len(RULES)}*",
             parse_mode='Markdown'
         )
 
 # ============ أوامر البوت ============
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
+    
     if user_id in waiting_for_rule:
         del waiting_for_rule[user_id]
         context.user_data.clear()
-        await update.message.reply_text("✅ تم إلغاء العملية!")
-    else:
-        await update.message.reply_text("❌ لا توجد عملية نشطة!")
+        await update.message.reply_text("✅ تم إلغاء إضافة الحكم!")
+        return
+    
+    if user_id in waiting_for_import:
+        del waiting_for_import[user_id]
+        await update.message.reply_text("✅ تم إلغاء استيراد الملف!")
+        return
+    
+    await update.message.reply_text("❌ لا توجد عملية نشطة!")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rules_count = len(RULES)
+    
     await update.message.reply_text(
-        "🎲 *لعبة النرد*\n\n"
-        "📌 *الأوامر:*\n"
-        "/start - بدء اللعبة\n"
-        "/help - عرض المساعدة\n"
-        "/cancel - إلغاء العملية\n\n"
-        "🎮 *طريقة اللعب:*\n"
-        "1️⃣ اضغط على 'ارمي النرد'\n"
-        "2️⃣ شاهد النرد يتحرك!\n"
-        "3️⃣ سيظهر لك رقم وحكم عشوائي\n"
-        "4️⃣ استمتع باللعب!\n\n"
-        "⚙️ *للمشرفين:*\n"
-        "• استخدم 'الإعدادات' لإدارة الأحكام\n"
-        "• يمكنك إضافة أو حذف الأحكام بسهولة",
+        f"🎲 *لعبة النرد*\n\n"
+        f"📌 *الأوامر:*\n"
+        f"/start - بدء اللعبة\n"
+        f"/help - عرض المساعدة\n"
+        f"/cancel - إلغاء العملية\n\n"
+        f"🎮 *طريقة اللعب:*\n"
+        f"1️⃣ اضغط على 'ارمي النرد'\n"
+        f"2️⃣ شاهد النرد يتحرك!\n"
+        f"3️⃣ سيظهر لك رقم (1-6) وحكم عشوائي\n"
+        f"4️⃣ استمتع باللعب!\n\n"
+        f"📜 *عدد الأحكام:* {rules_count}\n\n"
+        f"⚙️ *للمشرفين:*\n"
+        f"• استخدم 'الإعدادات' لإدارة الأحكام\n"
+        f"• يمكنك إضافة أو حذف الأحكام بسهولة\n"
+        f"• تصدير الأحكام كملف TXT\n"
+        f"• استيراد أحكام من ملف TXT\n"
+        f"• حذف جميع الأحكام دفعة واحدة\n"
+        f"• إضافة أحكام افتراضية",
         parse_mode='Markdown'
     )
 
@@ -416,13 +704,16 @@ def main():
     # معالج الأزرار
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # معالج الرسائل النصية
+    # معالج الرسائل النصية والملفات
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_message))
     
     # معالج الأخطاء
     application.add_error_handler(error_handler)
     
     print("🤖 البوت يعمل...")
+    print(f"📜 عدد الأحكام المحملة: {len(RULES)}")
+    print(f"👑 عدد المشرفين: {len(ADMIN_IDS)}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
