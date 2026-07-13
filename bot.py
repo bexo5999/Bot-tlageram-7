@@ -14,6 +14,10 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# ============ إعدادات القناة الإجبارية ============
+FORCED_CHANNEL = "@Bexo50"  # اسم القناة
+CHANNEL_LINK = "https://t.me/Bexo50"  # رابط القناة
+
 # ============ قاعدة البيانات (SQLite) ============
 DB_FILE = "bot_database.db"
 
@@ -135,7 +139,7 @@ waiting_for_import = {}
 waiting_for_admin_add = {}
 
 # ============ المشرفين الأساسيين (صلاحية كاملة) ============
-MASTER_ADMINS = [8798182716, 8916460129]
+MASTER_ADMINS = [8798182716]
 
 # ============ إيموجي النرد حسب الرقم ============
 DICE_EMOJIS = {
@@ -146,6 +150,93 @@ DICE_EMOJIS = {
     "5": "⚄",
     "6": "⚅"
 }
+
+# ============ التحقق من الاشتراك في القناة ============
+async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """التحقق من اشتراك المستخدم في القناة الإجبارية"""
+    user_id = update.effective_user.id
+    
+    # المشرفين الأساسيين لا يحتاجون اشتراك
+    if is_master_admin(user_id):
+        return True
+    
+    try:
+        chat_member = await context.bot.get_chat_member(FORCED_CHANNEL, user_id)
+        if chat_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+            return True
+        else:
+            return False
+    except Exception as e:
+        logging.error(f"خطأ في التحقق من الاشتراك: {e}")
+        return True
+
+async def send_subscription_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إرسال رسالة الاشتراك الإجباري"""
+    keyboard = [
+        [InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)],
+        [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_subscription")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"⚠️ *عذراً!*\n\n"
+        f"يجب عليك الاشتراك في قناتنا أولاً لتتمكن من استخدام البوت.\n\n"
+        f"📌 القناة: {FORCED_CHANNEL}\n\n"
+        f"🔽 اضغط على الزر أدناه للاشتراك، ثم اضغط 'تحقق من الاشتراك'.",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+async def check_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    if is_master_admin(user_id):
+        await query.edit_message_text("👑 أنت مشرف أساسي، لا تحتاج للاشتراك!")
+        return
+    
+    try:
+        chat_member = await context.bot.get_chat_member(FORCED_CHANNEL, user_id)
+        if chat_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+            await query.edit_message_text(
+                "✅ *تم التحقق من اشتراكك!*\n\n"
+                "🎲 مرحباً بك في لعبة النرد!\n"
+                "اضغط على /start للبدء.",
+                parse_mode='Markdown'
+            )
+            # عرض القائمة الرئيسية
+            await start(update, context)
+        else:
+            keyboard = [
+                [InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)],
+                [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_subscription")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                f"⚠️ *لم يتم العثور على اشتراكك!*\n\n"
+                f"يجب عليك الاشتراك في قناتنا أولاً:\n"
+                f"📌 {FORCED_CHANNEL}\n\n"
+                f"🔽 اضغط على الزر أدناه للاشتراك، ثم 'تحقق من الاشتراك'.",
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+    except Exception as e:
+        logging.error(f"خطأ في التحقق من الاشتراك: {e}")
+        keyboard = [
+            [InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)],
+            [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_subscription")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"⚠️ *حدث خطأ أثناء التحقق!*\n\n"
+            f"تأكد من اشتراكك في القناة:\n"
+            f"📌 {FORCED_CHANNEL}\n\n"
+            f"ثم اضغط 'تحقق من الاشتراك' مرة أخرى.",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
 
 # ============ التحقق من الصلاحيات ============
 def is_master_admin(user_id):
@@ -162,32 +253,15 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
-        
-        # الحصول على معلومات العضو من التلغرام
         member = await context.bot.get_chat_member(chat_id, user_id)
-        
-        # ======== المالك أو المشرف في التلغرام ========
         if member.status in [ChatMember.OWNER, ChatMember.ADMINISTRATOR]:
             return True
-        
-        # ======== مشرف البوت المضاف يدوياً ========
         if is_group_admin_user(chat_id, user_id):
             return True
-            
         return False
     except Exception as e:
         logging.error(f"خطأ في التحقق من صلاحيات المشرف: {e}")
         return False
-
-def should_show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """تحديد ما إذا كان يجب إظهار أزرار الإعدادات"""
-    user_id = update.effective_user.id
-    chat_type = update.effective_chat.type
-    
-    if chat_type == "private":
-        return is_master_admin(user_id)
-    
-    return False
 
 # ============ دالة /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,6 +269,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     chat_name = update.effective_chat.title or "خاص"
     user_id = update.effective_user.id
+    
+    # التحقق من الاشتراك في القناة (للمستخدمين العاديين في الخاص)
+    if chat_type == "private" and not is_master_admin(user_id):
+        if not await check_subscription(update, context):
+            await send_subscription_message(update, context)
+            return
     
     if chat_type != "private":
         save_group_info(chat_id, chat_name)
@@ -212,7 +292,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
-        # في المجموعة: تحقق من صلاحية المشرف (بما في ذلك المالك)
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
     
@@ -237,6 +316,12 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = update.effective_chat.id
     user_id = query.from_user.id
     chat_type = update.effective_chat.type
+    
+    # التحقق من الاشتراك في القناة (للمستخدمين العاديين في الخاص)
+    if chat_type == "private" and not is_master_admin(user_id):
+        if not await check_subscription(update, context):
+            await send_subscription_message(update, context)
+            return
     
     if chat_type != "private":
         if not is_group_enabled(chat_id):
@@ -343,7 +428,6 @@ async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     chat_name = update.effective_chat.title or "المجموعة"
     
-    # التحقق من صلاحية المشرف (بما في ذلك المالك)
     if not await is_group_admin(update, context):
         await query.edit_message_text(
             "⛔ عذراً، هذا الأمر للمشرفين فقط!\n\n"
@@ -998,6 +1082,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     chat_type = update.effective_chat.type
     
+    # ======== زر التحقق من الاشتراك ========
+    if data == "check_subscription":
+        await check_subscription_button(update, context)
+        return
+    
     # ======== أزرار اللعب للجميع ========
     if data == "roll":
         await roll_dice(update, context)
@@ -1008,7 +1097,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     # ======== التحقق من الصلاحيات ========
-    # في الخاص: فقط المشرفين الأساسيين
     if chat_type == "private":
         if not is_master_admin(user_id):
             await query.edit_message_text(
@@ -1020,7 +1108,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
-    # في المجموعة: فقط المشرفين (بما في ذلك المالك)
     if chat_type != "private":
         if not await is_group_admin(update, context):
             await query.edit_message_text(
@@ -1032,7 +1119,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
-    # ======== باقي الأزرار (بعد التحقق من الصلاحيات) ========
+    # ======== باقي الأزرار ========
     if data == "settings":
         await settings(update, context)
         return
@@ -1224,7 +1311,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• يمكنك إدارة الأحكام والمجموعات\n\n"
             )
     else:
-        # التحقق من صلاحية المشرف في المجموعة
         if await is_group_admin(update, context):
             msg += (
                 f"⚙️ *أنت مشرف في هذه المجموعة*\n"
@@ -1265,6 +1351,7 @@ def main():
     print("🤖 البوت يعمل...")
     print(f"📜 عدد الأحكام المحملة: {len(RULES)}")
     print(f"👑 عدد المشرفين الأساسيين: {len(MASTER_ADMINS)}")
+    print(f"📢 القناة الإجبارية: {FORCED_CHANNEL}")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
