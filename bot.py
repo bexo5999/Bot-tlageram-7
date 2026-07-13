@@ -153,7 +153,7 @@ def is_master_admin(user_id):
     return int(user_id) in MASTER_ADMINS
 
 async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """التحقق من أن المستخدم مشرف في المجموعة"""
+    """التحقق من أن المستخدم مشرف أو مالك في المجموعة"""
     if not update.effective_chat:
         return False
     if update.effective_chat.type == "private":
@@ -163,17 +163,20 @@ async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         chat_id = update.effective_chat.id
         
-        # التحقق من صلاحيات التلغرام
+        # الحصول على معلومات العضو من التلغرام
         member = await context.bot.get_chat_member(chat_id, user_id)
-        if member.status in [ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
+        
+        # ======== المالك أو المشرف في التلغرام ========
+        if member.status in [ChatMember.OWNER, ChatMember.ADMINISTRATOR]:
             return True
         
-        # التحقق من قائمة مشرفي البوت في المجموعة
+        # ======== مشرف البوت المضاف يدوياً ========
         if is_group_admin_user(chat_id, user_id):
             return True
             
         return False
-    except:
+    except Exception as e:
+        logging.error(f"خطأ في التحقق من صلاحيات المشرف: {e}")
         return False
 
 def should_show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,12 +184,10 @@ def should_show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_type = update.effective_chat.type
     
-    # في الخاص: فقط للمشرفين الأساسيين
     if chat_type == "private":
         return is_master_admin(user_id)
     
-    # في المجموعة: للمشرفين فقط
-    return False  # سنتحقق بشكل غير متزامن في الدوال
+    return False
 
 # ============ دالة /start ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,24 +196,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_name = update.effective_chat.title or "خاص"
     user_id = update.effective_user.id
     
-    # حفظ معلومات المجموعة
     if chat_type != "private":
         save_group_info(chat_id, chat_name)
     
     rules_count = len(RULES)
     
-    # أزرار اللعب فقط للجميع
+    # أزرار اللعب للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
     ]
     
-    # إضافة أزرار الإعدادات فقط للمشرفين
+    # أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
-        # في المجموعة: تحقق من صلاحية المشرف
+        # في المجموعة: تحقق من صلاحية المشرف (بما في ذلك المالك)
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
     
@@ -238,7 +238,6 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     chat_type = update.effective_chat.type
     
-    # التحقق من تفعيل البوت في المجموعة
     if chat_type != "private":
         if not is_group_enabled(chat_id):
             await query.edit_message_text("⛔ البوت معطل في هذه المجموعة!\nتواصل مع المشرف لتفعيله.")
@@ -275,18 +274,17 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💫 حظ سعيد!"
     )
     
-    # ======== أزرار اللعب للجميع ========
+    # أزرار اللعب للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
     ]
     
-    # ======== أزرار الإعدادات فقط للمشرفين ========
+    # أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
     else:
-        # في المجموعة: تحقق من صلاحية المشرف
         if await is_group_admin(update, context):
             keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
     
@@ -311,12 +309,10 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     rules_count = len(RULES)
     
-    # أزرار اللعب للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
     ]
     
-    # أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
@@ -338,7 +334,7 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ============ إعدادات المجموعة (للمشرفين فقط) ============
+# ============ إعدادات المجموعة ============
 async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -347,9 +343,15 @@ async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     chat_name = update.effective_chat.title or "المجموعة"
     
-    # التحقق من صلاحية المشرف
+    # التحقق من صلاحية المشرف (بما في ذلك المالك)
     if not await is_group_admin(update, context):
-        await query.edit_message_text("⛔ عذراً، هذا الأمر للمشرفين فقط!")
+        await query.edit_message_text(
+            "⛔ عذراً، هذا الأمر للمشرفين فقط!\n\n"
+            "💡 يمكنك فقط استخدام زر '🎲 ارمي النرد' للعب.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")]
+            ])
+        )
         return
     
     enabled = is_group_enabled(chat_id)
@@ -395,7 +397,12 @@ async def toggle_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = data.replace("toggle_group_", "")
     
     if not await is_group_admin(update, context):
-        await query.edit_message_text("⛔ عذراً، هذا الأمر للمشرفين فقط!")
+        await query.edit_message_text(
+            "⛔ عذراً، هذا الأمر للمشرفين فقط!",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔙 العودة", callback_data="group_settings")]
+            ])
+        )
         return
     
     current = is_group_enabled(chat_id)
@@ -430,7 +437,7 @@ async def view_group_admins(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         f"👑 *مشرفي البوت في المجموعة*\n\n{admin_list}\n\n"
-        f"📌 *ملاحظة:* مشرفي التلغرام في المجموعة لديهم صلاحيات تلقائياً.",
+        f"📌 *ملاحظة:* مالك المجموعة ومشرفي التلغرام لديهم صلاحيات تلقائياً.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("🔙 العودة للإعدادات", callback_data="group_settings")]
         ]),
@@ -566,14 +573,13 @@ async def handle_add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ============ الإعدادات (للمشرفين الأساسيين فقط في الخاص) ============
+# ============ الإعدادات ============
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = query.from_user.id
     
-    # فقط المشرفين الأساسيين
     if not is_master_admin(user_id):
         await query.edit_message_text("⛔ هذا الأمر للمشرفين الأساسيين فقط!")
         return
@@ -596,7 +602,7 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# ============ الإعدادات المتقدمة (للمشرفين الأساسيين) ============
+# ============ الإعدادات المتقدمة ============
 async def master_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -990,6 +996,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     data = query.data
+    chat_type = update.effective_chat.type
     
     # ======== أزرار اللعب للجميع ========
     if data == "roll":
@@ -1000,11 +1007,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_main(update, context)
         return
     
-    # ======== أزرار المشرفين الأساسيين فقط ========
-    if not is_master_admin(user_id):
-        await query.edit_message_text("⛔ غير مصرح!")
-        return
+    # ======== التحقق من الصلاحيات ========
+    # في الخاص: فقط المشرفين الأساسيين
+    if chat_type == "private":
+        if not is_master_admin(user_id):
+            await query.edit_message_text(
+                "⛔ عذراً، هذا الأمر للمشرفين الأساسيين فقط!\n\n"
+                "💡 يمكنك فقط استخدام زر '🎲 ارمي النرد' للعب.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")]
+                ])
+            )
+            return
     
+    # في المجموعة: فقط المشرفين (بما في ذلك المالك)
+    if chat_type != "private":
+        if not await is_group_admin(update, context):
+            await query.edit_message_text(
+                "⛔ عذراً، هذا الأمر للمشرفين فقط!\n\n"
+                "💡 يمكنك فقط استخدام زر '🎲 ارمي النرد' للعب.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")]
+                ])
+            )
+            return
+    
+    # ======== باقي الأزرار (بعد التحقق من الصلاحيات) ========
     if data == "settings":
         await settings(update, context)
         return
@@ -1049,7 +1077,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_delete_all(update, context)
         return
     
-    # ======== أزرار المجموعة ========
     if data == "group_settings":
         await group_settings(update, context)
         return
@@ -1093,17 +1120,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     
-    # معالجة استيراد الملف
     if update.message.document:
         await handle_file_import(update, context)
         return
     
-    # معالجة إضافة مشرف
     if user_id in waiting_for_admin_add:
         await handle_add_admin(update, context)
         return
     
-    # معالجة إضافة حكم
     if not is_master_admin(int(user_id)):
         return
     
@@ -1199,8 +1223,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"• لديك صلاحية كاملة على البوت\n"
                 f"• يمكنك إدارة الأحكام والمجموعات\n\n"
             )
-        else:
-            msg += f"💡 *ملاحظة:* يمكنك اللعب فقط، الإعدادات للمشرفين.\n\n"
+    else:
+        # التحقق من صلاحية المشرف في المجموعة
+        if await is_group_admin(update, context):
+            msg += (
+                f"⚙️ *أنت مشرف في هذه المجموعة*\n"
+                f"• يمكنك تفعيل/تعطيل البوت\n"
+                f"• استخدم زر 'إعدادات المجموعة'\n\n"
+            )
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
