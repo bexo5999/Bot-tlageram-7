@@ -153,6 +153,7 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     username = query.from_user.username or user_id
     
+    # إنشاء معرف فريد للغرفة
     game_id = str(random.randint(1000, 9999))
     
     game = {
@@ -185,12 +186,11 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-# ============ الانضمام للعبة (معالج الأوامر) ============
+# ============ الانضمام للعبة ============
 async def join_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     username = update.message.from_user.username or user_id
     
-    # استخراج معرف الغرفة من الأمر
     text = update.message.text
     if text.startswith("/join_"):
         game_id = text.replace("/join_", "").strip()
@@ -227,25 +227,25 @@ async def join_game_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_game(game)
     
     # رسالة للاعب المنضم
+    players_list = "\n".join([f"• @{name}" for name in game["players_names"]])
     await update.message.reply_text(
         f"✅ تم الانضمام للغرفة بنجاح!\n\n"
         f"🎮 معرف الغرفة: {game_id}\n"
-        f"👤 اللاعبين:\n" + 
-        "\n".join([f"• @{name}" for name in game["players_names"]]) +
-        f"\n\n🎯 انتظر دورك للعب!"
+        f"👤 اللاعبين:\n{players_list}\n\n"
+        f"🎯 انتظر دورك للعب!"
     )
     
     # إرسال إشعار لمنشئ الغرفة
     try:
-        creator_id = game["creator"]
+        creator_id = int(game["creator"])
         await context.bot.send_message(
             chat_id=creator_id,
-            text=f"👤 *انضم لاعب جديد!*\n\n"
-                 f"@{username} انضم للغرفة `{game_id}`\n"
+            text=f"👤 انضم لاعب جديد!\n\n"
+                 f"@{username} انضم للغرفة {game_id}\n"
                  f"الآن يمكنك البدء باللعب!"
         )
-    except:
-        pass
+    except Exception as e:
+        logging.error(f"خطأ في إرسال الإشعار: {e}")
 
 # ============ رمي النرد في اللعبة الزوجية ============
 async def roll_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,9 +369,6 @@ async def share_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     game_id = data.replace("share_", "")
     
-    # الحصول على اسم البوت
-    bot_username = (await context.bot.get_me()).username
-    
     keyboard = [
         [InlineKeyboardButton("🎲 العودة للعبة", callback_data=f"roll_game_{game_id}")]
     ]
@@ -381,8 +378,6 @@ async def share_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔗 رابط الدعوة للغرفة\n\n"
         f"انسخ هذا الرابط وأرسله لصديقك:\n"
         f"/join_{game_id}\n\n"
-        f"أو استخدم هذا الرابط المباشر:\n"
-        f"https://t.me/{bot_username}?start=join_{game_id}\n\n"
         f"👤 انتظر حتى ينضم لاعب آخر للبدء",
         reply_markup=reply_markup
     )
@@ -461,14 +456,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     data = query.data
     
+    # معالجة اللعب الفردي
     if data == "roll_single":
         await roll_single(update, context)
         return
     
+    # معالجة اللعب الزوجي
     if data == "multiplayer":
         await create_game(update, context)
         return
     
+    # معالجة أزرار اللعبة
     if data.startswith("roll_game_"):
         await roll_game(update, context)
         return
@@ -589,11 +587,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     text = update.message.text
     
-    # معالجة أوامر /join_ كرسائل نصية (احتياطياً)
+    # معالجة أوامر /join_ كرسائل نصية
     if text.startswith("/join_"):
         await join_game_command(update, context)
         return
     
+    # إدارة الأحكام للمشرفين فقط
     if int(user_id) not in ADMIN_IDS:
         return
     
@@ -663,6 +662,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "5️⃣ الفائز من يحصل على أكبر عدد من النقاط"
     )
 
+# ============ معالج الأخطاء ============
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.error(f"خطأ: {context.error}")
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text("❌ حدث خطأ! يرجى المحاولة مرة أخرى.")
+    except:
+        pass
+
 # ============ الدالة الرئيسية ============
 def main():
     TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
@@ -679,14 +687,17 @@ def main():
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel))
     
-    # معالج الانضمام للعبة
+    # معالج الانضمام للعبة (CommandHandler)
     application.add_handler(CommandHandler("join", join_game_command))
     
     # معالج الأزرار
     application.add_handler(CallbackQueryHandler(button_handler))
     
-    # معالج الرسائل النصية (لـ /join_ ولإدارة الأحكام)
+    # معالج الرسائل النصية
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # معالج الأخطاء
+    application.add_error_handler(error_handler)
     
     print("🤖 البوت يعمل...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
