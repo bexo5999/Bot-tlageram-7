@@ -53,12 +53,55 @@ GAMES = load_games()
 waiting_for_rule = {}
 ADMIN_IDS = ["8798182716", "8916460129"]
 
-# إنشاء غرفة لعبة جديدة
-async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    username = update.message.from_user.username or user_id
+# ============ دالة /start (الأساسية) ============
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll_single")],
+        [InlineKeyboardButton("🎮 لعبة زوجية", callback_data="multiplayer")],
+        [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # إنشاء معرف فريد للغرفة
+    await update.message.reply_text(
+        f"🎲 *مرحباً بك في لعبة النرد!*\n\n"
+        f"اختر نوع اللعب:\n"
+        f"• 🎲 فردي: العب مع نفسك\n"
+        f"• 🎮 زوجي: العب مع صديق\n\n"
+        f"💡 الأحكام تظهر فقط عند اللعب!",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ اللعب الفردي ============
+async def roll_single(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    dice_number = random.choice(list(RULES.keys()))
+    rule = RULES[dice_number]
+    
+    message = f"🎲 رقم النرد: *{dice_number}*\n\n📜 الحكم: {rule}"
+    
+    keyboard = [
+        [InlineKeyboardButton("🎲 أعد الرمي", callback_data="roll_single")],
+        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        message,
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ إنشاء غرفة لعبة جديدة ============
+async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = str(query.from_user.id)
+    username = query.from_user.username or user_id
+    
     game_id = str(random.randint(1000, 9999))
     
     GAMES[game_id] = {
@@ -68,19 +111,18 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "players_names": [username],
         "current_turn": 0,
         "scores": {user_id: 0},
-        "active": True,
-        "used_rules": []
+        "active": True
     }
     save_games(GAMES)
     
     keyboard = [
-        [InlineKeyboardButton("🎲 رمي النرد", callback_data=f"roll_{game_id}")],
+        [InlineKeyboardButton("🎲 رمي النرد", callback_data=f"roll_game_{game_id}")],
         [InlineKeyboardButton("📋 عرض النتائج", callback_data=f"scores_{game_id}")],
         [InlineKeyboardButton("🔗 مشاركة الرابط", callback_data=f"share_{game_id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
+    await query.edit_message_text(
         f"🎮 *تم إنشاء غرفة اللعبة!*\n\n"
         f"🆔 معرف الغرفة: `{game_id}`\n"
         f"👤 منشئ الغرفة: @{username}\n\n"
@@ -92,12 +134,11 @@ async def create_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# الانضمام للعبة
+# ============ الانضمام للعبة ============
 async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     username = update.message.from_user.username or user_id
     
-    # استخراج معرف اللعبة من الأمر
     text = update.message.text
     game_id = text.replace("/join_", "").strip()
     
@@ -119,17 +160,15 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ الغرفة ممتلئة! (حد أقصى 2 لاعبين)")
         return
     
-    # إضافة اللاعب
     game["players"].append(user_id)
     game["players_names"].append(username)
     game["scores"][user_id] = 0
     
     if len(game["players"]) == 2:
-        game["current_turn"] = 0  # دور اللاعب الأول
+        game["current_turn"] = 0
     
     save_games(GAMES)
     
-    # إرسال إشعار للجميع في الغرفة
     await update.message.reply_text(
         f"✅ *تم الانضمام للغرفة!*\n\n"
         f"🎮 معرف الغرفة: `{game_id}`\n"
@@ -138,42 +177,8 @@ async def join_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"\n\n🎯 اضغط على 'رمي النرد' للبدء!"
     )
 
-# عرض معلومات الغرفة
-async def game_info(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
-    if game_id not in GAMES:
-        await update.message.reply_text("❌ الغرفة غير موجودة!")
-        return
-    
-    game = GAMES[game_id]
-    
-    players_info = ""
-    for i, name in enumerate(game["players_names"]):
-        player_id = game["players"][i]
-        score = game["scores"].get(player_id, 0)
-        current = " 👈 *دوره الآن*" if i == game["current_turn"] else ""
-        players_info += f"• @{name}: {score} نقطة{current}\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("🎲 رمي النرد", callback_data=f"roll_{game_id}")],
-        [InlineKeyboardButton("📋 عرض النتائج", callback_data=f"scores_{game_id}")]
-    ]
-    
-    if game["current_turn"] == 0:
-        keyboard.append([InlineKeyboardButton("🔄 إنهاء اللعبة", callback_data=f"end_{game_id}")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        f"🎮 *معلومات الغرفة*\n\n"
-        f"🆔 معرف الغرفة: `{game_id}`\n"
-        f"📊 الحالة: {'🟢 جارية' if game['active'] else '🔴 منتهية'}\n\n"
-        f"👥 *اللاعبين:*\n{players_info}",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
-
-# رمي النرد في اللعبة
-async def roll_dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
+# ============ رمي النرد في اللعبة الزوجية ============
+async def roll_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     query = update.callback_query
     await query.answer()
     
@@ -193,30 +198,23 @@ async def roll_dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE, gam
         await query.edit_message_text("❌ أنت لست في هذه اللعبة!")
         return
     
-    # التحقق من الدور
     current_player_id = game["players"][game["current_turn"]]
     if user_id != current_player_id:
         current_name = game["players_names"][game["current_turn"]]
         await query.edit_message_text(
-            f"⛔ ليس دورك!\n"
-            f"دور اللاعب @{current_name} الآن."
+            f"⛔ ليس دورك!\nدور اللاعب @{current_name} الآن."
         )
         return
     
-    # رمي النرد
     dice_number = random.choice(list(RULES.keys()))
     rule = RULES[dice_number]
     
-    # زيادة النقاط للاعب الحالي
     game["scores"][user_id] = game["scores"].get(user_id, 0) + 1
-    
-    # تغيير الدور للاعب التالي
     game["current_turn"] = (game["current_turn"] + 1) % len(game["players"])
     next_player = game["players_names"][game["current_turn"]]
     
     save_games(GAMES)
     
-    # عرض النتيجة
     players_info = ""
     for i, name in enumerate(game["players_names"]):
         pid = game["players"][i]
@@ -225,7 +223,7 @@ async def roll_dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE, gam
         players_info += f"• @{name}: {score} نقطة{current}\n"
     
     keyboard = [
-        [InlineKeyboardButton("🎲 رمي النرد", callback_data=f"roll_{game_id}")],
+        [InlineKeyboardButton("🎲 رمي النرد", callback_data=f"roll_game_{game_id}")],
         [InlineKeyboardButton("📋 عرض النتائج", callback_data=f"scores_{game_id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -242,7 +240,7 @@ async def roll_dice_game(update: Update, context: ContextTypes.DEFAULT_TYPE, gam
         parse_mode='Markdown'
     )
 
-# عرض النتائج
+# ============ عرض النتائج ============
 async def show_scores(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     query = update.callback_query
     await query.answer()
@@ -260,7 +258,7 @@ async def show_scores(update: Update, context: ContextTypes.DEFAULT_TYPE, game_i
         players_info += f"• @{name}: {score} نقطة\n"
     
     keyboard = [
-        [InlineKeyboardButton("🎲 متابعة اللعب", callback_data=f"roll_{game_id}")],
+        [InlineKeyboardButton("🎲 متابعة اللعب", callback_data=f"roll_game_{game_id}")],
         [InlineKeyboardButton("🔄 إنهاء اللعبة", callback_data=f"end_{game_id}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -273,7 +271,7 @@ async def show_scores(update: Update, context: ContextTypes.DEFAULT_TYPE, game_i
         parse_mode='Markdown'
     )
 
-# مشاركة رابط اللعبة
+# ============ مشاركة رابط اللعبة ============
 async def share_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     query = update.callback_query
     await query.answer()
@@ -285,11 +283,11 @@ async def share_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id
         f"👤 اللاعب الحالي: انتظر حتى ينضم لاعب آخر",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🎲 العودة للعبة", callback_data=f"roll_{game_id}")]
+            [InlineKeyboardButton("🎲 العودة للعبة", callback_data=f"roll_game_{game_id}")]
         ])
     )
 
-# إنهاء اللعبة
+# ============ إنهاء اللعبة ============
 async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     query = update.callback_query
     await query.answer()
@@ -302,7 +300,6 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
     game["active"] = False
     save_games(GAMES)
     
-    # تحديد الفائز
     max_score = -1
     winner = ""
     for i, pid in enumerate(game["players"]):
@@ -318,11 +315,33 @@ async def end_game(update: Update, context: ContextTypes.DEFAULT_TYPE, game_id):
         f"📊 *النتيجة النهائية:*\n" +
         "\n".join([f"• @{name}: {game['scores'].get(pid, 0)} نقطة" 
                    for name, pid in zip(game["players_names"], game["players"])]) +
-        f"\n\n🔄 ابدأ لعبة جديدة بـ /new",
+        f"\n\n🔄 ابدأ لعبة جديدة بـ /start",
         parse_mode='Markdown'
     )
 
-# معالجة الأزرار العامة
+# ============ العودة للقائمة الرئيسية ============
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll_single")],
+        [InlineKeyboardButton("🎮 لعبة زوجية", callback_data="multiplayer")],
+        [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        f"🎲 *مرحباً بك في لعبة النرد!*\n\n"
+        f"اختر نوع اللعب:\n"
+        f"• 🎲 فردي: العب مع نفسك\n"
+        f"• 🎮 زوجي: العب مع صديق\n\n"
+        f"💡 الأحكام تظهر فقط عند اللعب!",
+        reply_markup=reply_markup,
+        parse_mode='Markdown'
+    )
+
+# ============ معالجة الأزرار الرئيسية ============
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -330,34 +349,48 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     data = query.data
     
-    # معالجة أوامر اللعبة
-    if data.startswith("roll_"):
-        game_id = data.replace("roll_", "")
-        await roll_dice_game(update, context, game_id)
+    # معالجة اللعب الفردي
+    if data == "roll_single":
+        await roll_single(update, context)
         return
     
-    elif data.startswith("scores_"):
+    # معالجة اللعب الزوجي
+    if data == "multiplayer":
+        await create_game(update, context)
+        return
+    
+    # معالجة أزرار اللعبة
+    if data.startswith("roll_game_"):
+        game_id = data.replace("roll_game_", "")
+        await roll_game(update, context, game_id)
+        return
+    
+    if data.startswith("scores_"):
         game_id = data.replace("scores_", "")
         await show_scores(update, context, game_id)
         return
     
-    elif data.startswith("share_"):
+    if data.startswith("share_"):
         game_id = data.replace("share_", "")
         await share_game(update, context, game_id)
         return
     
-    elif data.startswith("end_"):
+    if data.startswith("end_"):
         game_id = data.replace("end_", "")
         await end_game(update, context, game_id)
         return
     
-    # بقية الأزرار (الإعدادات وغيرها)
+    if data == "back_to_main":
+        await back_to_main(update, context)
+        return
+    
+    # ============ الإعدادات (للمشرفين) ============
     if data == "settings":
         if user_id not in ADMIN_IDS:
             await query.edit_message_text(
                 "⛔ عذراً، هذا الأمر للمشرفين فقط!",
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🔙 العودة", callback_data="back")]
+                    [InlineKeyboardButton("🔙 العودة", callback_data="back_to_main")]
                 ])
             )
             return
@@ -366,7 +399,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("➕ إضافة حكم جديد", callback_data="add_rule")],
             [InlineKeyboardButton("🗑️ حذف حكم", callback_data="delete_rule")],
             [InlineKeyboardButton("📋 عرض جميع الأحكام", callback_data="view_rules")],
-            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back")]
+            [InlineKeyboardButton("🔙 العودة للقائمة الرئيسية", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -377,8 +410,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ... (باقي الكود للإعدادات كما هو)
-    elif data == "add_rule":
+    if data == "add_rule":
         if user_id not in ADMIN_IDS:
             await query.edit_message_text("⛔ غير مصرح!")
             return
@@ -394,7 +426,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    elif data == "delete_rule":
+    if data == "delete_rule":
         if user_id not in ADMIN_IDS:
             await query.edit_message_text("⛔ غير مصرح!")
             return
@@ -415,7 +447,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    elif data.startswith("del_"):
+    if data.startswith("del_"):
         if user_id not in ADMIN_IDS:
             await query.edit_message_text("⛔ غير مصرح!")
             return
@@ -428,14 +460,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
-                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back")]
+                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
                 ])
             )
         else:
             await query.edit_message_text("❌ الحكم غير موجود!")
         return
     
-    elif data == "view_rules":
+    if data == "view_rules":
         if not RULES:
             await query.edit_message_text("📋 لا توجد أحكام حالياً!")
             return
@@ -446,30 +478,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown',
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
-                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back")]
+                [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
             ])
         )
         return
-    
-    elif data == "back":
-        keyboard = [
-            [InlineKeyboardButton("🎲 ارمي النرد", callback_data="roll")],
-            [InlineKeyboardButton("⚙️ الإعدادات (للمشرفين)", callback_data="settings")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            f"🎲 *مرحباً بك في لعبة النرد!*\n\n"
-            f"اضغط على الزر لرمي النرد والحصول على حكمك.\n\n"
-            f"💡 الأحكام تظهر فقط عند اللعب!\n\n"
-            f"🎮 *للعب مع صديق:*\n"
-            f"استخدم الأمر /new لإنشاء غرفة جديدة",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        return
 
-# معالجة الرسائل النصية
+# ============ معالجة الرسائل النصية ============
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     text = update.message.text
@@ -525,11 +539,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-# أمر /new (إنشاء غرفة جديدة)
-async def new_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await create_game(update, context)
-
-# أمر /cancel
+# ============ أوامر البوت ============
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     if user_id in waiting_for_rule:
@@ -539,28 +549,24 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ لا توجد عملية نشطة!")
 
-# أمر /help
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        f"🎲 *لعبة النرد الزوجية*\n\n"
+        f"🎲 *لعبة النرد*\n\n"
         f"📌 *الأوامر:*\n"
         f"/start - القائمة الرئيسية\n"
-        f"/new - إنشاء غرفة جديدة\n"
         f"/join_[رقم] - الانضمام لغرفة (مثال: /join_1234)\n"
         f"/help - عرض المساعدة\n"
         f"/cancel - إلغاء العملية\n\n"
-        f"🎮 *طريقة اللعب:*\n"
-        f"1️⃣ شخص ينشئ غرفة بـ /new\n"
-        f"2️⃣ الشخص الثاني ينضم بـ /join_[رقم]\n"
+        f"🎮 *طريقة اللعب الزوجي:*\n"
+        f"1️⃣ اختر 'لعبة زوجية'\n"
+        f"2️⃣ شارك الرابط مع صديقك\n"
         f"3️⃣ يتناوب اللاعبون على رمي النرد\n"
         f"4️⃣ كل رمية تعطي حكم + نقطة\n"
-        f"5️⃣ الفائز من يحصل على أكبر عدد من النقاط\n\n"
-        f"⚙️ *للمشرفين:*\n"
-        f"• استخدم زر 'الإعدادات' لإدارة الأحكام",
+        f"5️⃣ الفائز من يحصل على أكبر عدد من النقاط",
         parse_mode='Markdown'
     )
 
-# الدالة الرئيسية
+# ============ الدالة الرئيسية ============
 def main():
     TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
     
@@ -571,9 +577,7 @@ def main():
     
     application = Application.builder().token(TOKEN).build()
     
-    # إضافة المعالجات
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("new", new_game))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("cancel", cancel))
     application.add_handler(CallbackQueryHandler(button_handler))
