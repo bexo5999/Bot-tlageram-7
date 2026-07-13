@@ -1,4 +1,5 @@
 import random
+import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -76,7 +77,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # الدالة الرئيسية
 def main():
     # استخدم توكن البوت الخاص بك
-    TOKEN = "YOUR_BOT_TOKEN_HERE"
+    
+TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
     
     # إنشاء التطبيق
     application = Application.builder().token(TOKEN).build()
