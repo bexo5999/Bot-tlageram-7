@@ -5,6 +5,8 @@ import json
 import sqlite3
 import asyncio
 import io
+from collections import defaultdict
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ChatMember
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -15,8 +17,8 @@ logging.basicConfig(
 )
 
 # ============ إعدادات القناة الإجبارية ============
-FORCED_CHANNEL = "@Bexo50"  # اسم القناة
-CHANNEL_LINK = "https://t.me/Bexo50"  # رابط القناة
+FORCED_CHANNEL = "@Bexo50"
+CHANNEL_LINK = "https://t.me/Bexo50"
 
 # ============ قاعدة البيانات (SQLite) ============
 DB_FILE = "bot_database.db"
@@ -138,10 +140,10 @@ waiting_for_rule = {}
 waiting_for_import = {}
 waiting_for_admin_add = {}
 
-# ============ المشرفين الأساسيين (صلاحية كاملة) ============
-MASTER_ADMINS = [8798182716,8916460129]
+# ============ المشرفين الأساسيين ============
+MASTER_ADMINS = [8798182716, 8916460129]
 
-# ============ إيموجي النرد حسب الرقم ============
+# ============ إيموجي النرد ============
 DICE_EMOJIS = {
     "1": "⚀",
     "2": "⚁",
@@ -151,12 +153,17 @@ DICE_EMOJIS = {
     "6": "⚅"
 }
 
-# ============ التحقق من الاشتراك في القناة ============
+# ============ قفل للوصول الآمن ============
+_rules_lock = asyncio.Lock()
+
+# ============ تحديد معدل الاستخدام ============
+user_last_roll = defaultdict(float)
+ROLL_COOLDOWN = 1.5  # ثانية
+
+# ============ التحقق من الاشتراك ============
 async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """التحقق من اشتراك المستخدم في القناة الإجبارية"""
     user_id = update.effective_user.id
     
-    # المشرفين الأساسيين لا يحتاجون اشتراك
     if is_master_admin(user_id):
         return True
     
@@ -164,28 +171,29 @@ async def check_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE)
         chat_member = await context.bot.get_chat_member(FORCED_CHANNEL, user_id)
         if chat_member.status in [ChatMember.MEMBER, ChatMember.ADMINISTRATOR, ChatMember.OWNER]:
             return True
-        else:
-            return False
+        return False
     except Exception as e:
         logging.error(f"خطأ في التحقق من الاشتراك: {e}")
         return True
 
 async def send_subscription_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """إرسال رسالة الاشتراك الإجباري"""
     keyboard = [
         [InlineKeyboardButton("📢 اشترك في القناة", url=CHANNEL_LINK)],
         [InlineKeyboardButton("🔄 تحقق من الاشتراك", callback_data="check_subscription")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(
-        f"⚠️ *عذراً!*\n\n"
-        f"يجب عليك الاشتراك في قناتنا أولاً لتتمكن من استخدام البوت.\n\n"
-        f"📌 القناة: {FORCED_CHANNEL}\n\n"
-        f"🔽 اضغط على الزر أدناه للاشتراك، ثم اضغط 'تحقق من الاشتراك'.",
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await update.message.reply_text(
+            f"⚠️ *عذراً!*\n\n"
+            f"يجب عليك الاشتراك في قناتنا أولاً لتتمكن من استخدام البوت.\n\n"
+            f"📌 القناة: {FORCED_CHANNEL}\n\n"
+            f"🔽 اضغط على الزر أدناه للاشتراك، ثم اضغط 'تحقق من الاشتراك'.",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logging.error(f"خطأ في إرسال رسالة الاشتراك: {e}")
 
 async def check_subscription_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -206,7 +214,6 @@ async def check_subscription_button(update: Update, context: ContextTypes.DEFAUL
                 "اضغط على /start للبدء.",
                 parse_mode='Markdown'
             )
-            # عرض القائمة الرئيسية
             await start(update, context)
         else:
             keyboard = [
@@ -240,11 +247,9 @@ async def check_subscription_button(update: Update, context: ContextTypes.DEFAUL
 
 # ============ التحقق من الصلاحيات ============
 def is_master_admin(user_id):
-    """التحقق من أن المستخدم مشرف أساسي"""
     return int(user_id) in MASTER_ADMINS
 
 async def is_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """التحقق من أن المستخدم مشرف أو مالك في المجموعة"""
     if not update.effective_chat:
         return False
     if update.effective_chat.type == "private":
@@ -270,7 +275,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_name = update.effective_chat.title or "خاص"
     user_id = update.effective_user.id
     
-    # التحقق من الاشتراك في القناة (للمستخدمين العاديين في الخاص)
     if chat_type == "private" and not is_master_admin(user_id):
         if not await check_subscription(update, context):
             await send_subscription_message(update, context)
@@ -281,12 +285,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     rules_count = len(RULES)
     
-    # أزرار اللعب للجميع
     keyboard = [
         [InlineKeyboardButton("🎲 ارمي النرد 🎲", callback_data="roll")],
     ]
     
-    # أزرار الإعدادات فقط للمشرفين
     if chat_type == "private":
         if is_master_admin(user_id):
             keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
@@ -302,13 +304,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         msg = f"🎲 *لعبة النرد في المجموعة!* 🎲\n\nاضغط على الزر لرمي النرد والحصول على حكمك.\n\n📜 عدد الأحكام المتاحة: *{rules_count}* حكم\n💡 الأحكام تظهر فقط عند اللعب!\n\n👥 يمكن للجميع اللعب!"
     
-    await update.message.reply_text(
-        msg,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await update.message.reply_text(
+            msg,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logging.error(f"خطأ في /start: {e}")
 
-# ============ عرض النرد المتحرك ============
+# ============ عرض النرد المتحرك (محسّن) ============
 async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -317,7 +322,20 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     user_id = query.from_user.id
     chat_type = update.effective_chat.type
     
-    # التحقق من الاشتراك في القناة (للمستخدمين العاديين في الخاص)
+    # التحقق من معدل الاستخدام
+    current_time = time.time()
+    if user_id in user_last_roll:
+        time_diff = current_time - user_last_roll[user_id]
+        if time_diff < ROLL_COOLDOWN:
+            await query.answer(
+                f"⏳ انتظر {ROLL_COOLDOWN - time_diff:.1f} ثانية",
+                show_alert=True
+            )
+            return
+    
+    user_last_roll[user_id] = current_time
+    
+    # التحقق من الاشتراك
     if chat_type == "private" and not is_master_admin(user_id):
         if not await check_subscription(update, context):
             await send_subscription_message(update, context)
@@ -325,65 +343,125 @@ async def show_dice_animation(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if chat_type != "private":
         if not is_group_enabled(chat_id):
-            await query.edit_message_text("⛔ البوت معطل في هذه المجموعة!\nتواصل مع المشرف لتفعيله.")
+            try:
+                await query.edit_message_text("⛔ البوت معطل في هذه المجموعة!\nتواصل مع المشرف لتفعيله.")
+            except:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="⛔ البوت معطل في هذه المجموعة!\nتواصل مع المشرف لتفعيله."
+                )
             return
     
-    # تأثير الحركة
-    for _ in range(3):
-        temp_dice = random.choice(list(DICE_EMOJIS.values()))
-        await query.edit_message_text(
-            f"🎲 *جاري رمي النرد...* 🎲\n\n"
-            f"{temp_dice} {random.choice(list(DICE_EMOJIS.values()))} {random.choice(list(DICE_EMOJIS.values()))}",
+    # حذف الرسالة القديمة
+    try:
+        await query.message.delete()
+    except Exception as e:
+        logging.error(f"خطأ في حذف الرسالة: {e}")
+    
+    # الحصول على حكم عشوائي مع قفل
+    async with _rules_lock:
+        if not RULES:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="📋 لا توجد أحكام متاحة حالياً!\nتواصل مع المشرف لإضافة أحكام."
+                )
+                return
+            except Exception as e:
+                logging.error(f"خطأ في إرسال رسالة: {e}")
+                return
+        all_rules_keys = list(RULES.keys())
+        rule_key = random.choice(all_rules_keys)
+        rule = RULES[rule_key]
+    
+    # إرسال رسالة جديدة مع تأثير الحركة
+    try:
+        msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=f"🎲 *جاري رمي النرد...* 🎲\n\n⚀ ⚁ ⚂",
             parse_mode='Markdown'
         )
-        await asyncio.sleep(0.2)
+        
+        # تأثير الحركة
+        for _ in range(3):
+            temp_dice = random.choice(list(DICE_EMOJIS.values()))
+            try:
+                await msg.edit_text(
+                    f"🎲 *جاري رمي النرد...* 🎲\n\n"
+                    f"{temp_dice} {random.choice(list(DICE_EMOJIS.values()))} {random.choice(list(DICE_EMOJIS.values()))}",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logging.error(f"خطأ في تحديث رسالة الحركة: {e}")
+            await asyncio.sleep(0.3)
+        
+        # رقم النرد
+        dice_number = random.randint(1, 6)
+        dice_emoji = DICE_EMOJIS[str(dice_number)]
+        
+        # اسم المستخدم
+        user_name = query.from_user.first_name or "لاعب"
+        if query.from_user.username:
+            user_name = f"@{query.from_user.username}"
+        
+        message = (
+            f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
+            f"📜 *الحكم:* {rule}\n\n"
+            f"👤 اللاعب: {user_name}\n"
+            f"💫 حظ سعيد!"
+        )
+        
+        # أزرار اللعب
+        keyboard = [
+            [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
+        ]
+        
+        if chat_type == "private":
+            if is_master_admin(user_id):
+                keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
+                keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
+        else:
+            if await is_group_admin(update, context):
+                keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await msg.edit_text(
+                message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logging.error(f"خطأ في تحديث الرسالة النهائية: {e}")
+            # إرسال رسالة جديدة في حالة فشل التحرير
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                reply_markup=reply_markup,
+                parse_mode='Markdown'
+            )
     
-    # رقم النرد
-    dice_number = random.randint(1, 6)
-    dice_emoji = DICE_EMOJIS[str(dice_number)]
-    
-    # اختيار حكم عشوائي
-    all_rules_keys = list(RULES.keys())
-    rule_key = random.choice(all_rules_keys)
-    rule = RULES[rule_key]
-    
-    # اسم المستخدم
-    user_name = query.from_user.first_name or "لاعب"
-    if query.from_user.username:
-        user_name = f"@{query.from_user.username}"
-    
-    message = (
-        f"🎲 *رقم النرد: {dice_number}* {dice_emoji}\n\n"
-        f"📜 *الحكم:* {rule}\n\n"
-        f"👤 اللاعب: {user_name}\n"
-        f"💫 حظ سعيد!"
-    )
-    
-    # أزرار اللعب للجميع
-    keyboard = [
-        [InlineKeyboardButton("🎲 أعد الرمي 🎲", callback_data="roll")],
-    ]
-    
-    # أزرار الإعدادات فقط للمشرفين
-    if chat_type == "private":
-        if is_master_admin(user_id):
-            keyboard.append([InlineKeyboardButton("⚙️ الإعدادات المتقدمة", callback_data="master_settings")])
-            keyboard.append([InlineKeyboardButton("⚙️ الإعدادات", callback_data="settings")])
-    else:
-        if await is_group_admin(update, context):
-            keyboard.append([InlineKeyboardButton("⚙️ إعدادات المجموعة", callback_data="group_settings")])
-    
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        message,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    except Exception as e:
+        logging.error(f"خطأ في show_dice_animation: {e}")
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ حدث خطأ! يرجى المحاولة مرة أخرى."
+            )
+        except:
+            pass
 
 # ============ رمي النرد ============
 async def roll_dice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await show_dice_animation(update, context)
+    try:
+        await show_dice_animation(update, context)
+    except Exception as e:
+        logging.error(f"خطأ في roll_dice: {e}")
+        try:
+            await update.callback_query.answer("حدث خطأ، حاول مرة أخرى", show_alert=True)
+        except:
+            pass
 
 # ============ العودة للقائمة الرئيسية ============
 async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -413,11 +491,14 @@ async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         msg = f"🎲 *لعبة النرد في المجموعة!* 🎲\n\nاضغط على الزر لرمي النرد والحصول على حكمك.\n\n📜 عدد الأحكام المتاحة: *{rules_count}* حكم"
     
-    await query.edit_message_text(
-        msg,
-        reply_markup=reply_markup,
-        parse_mode='Markdown'
-    )
+    try:
+        await query.edit_message_text(
+            msg,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+    except Exception as e:
+        logging.error(f"خطأ في back_to_main: {e}")
 
 # ============ إعدادات المجموعة ============
 async def group_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -790,14 +871,17 @@ async def export_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text("📤 جاري تصدير الأحكام...")
     
-    await context.bot.send_document(
-        chat_id=user_id,
-        document=file,
-        filename=f"rules_export_{len(RULES)}.txt",
-        caption=f"✅ تم تصدير {len(RULES)} حكم بنجاح!"
-    )
-    
-    await query.delete_message()
+    try:
+        await context.bot.send_document(
+            chat_id=user_id,
+            document=file,
+            filename=f"rules_export_{len(RULES)}.txt",
+            caption=f"✅ تم تصدير {len(RULES)} حكم بنجاح!"
+        )
+        await query.delete_message()
+    except Exception as e:
+        logging.error(f"خطأ في تصدير الأحكام: {e}")
+        await query.edit_message_text("❌ حدث خطأ أثناء التصدير!")
 
 # ============ استيراد الأحكام ============
 async def import_rules_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -843,10 +927,10 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ الرجاء إرسال ملف بصيغة TXT فقط!")
         return
     
-    file = await context.bot.get_file(document.file_id)
-    file_content = await file.download_as_bytearray()
-    
     try:
+        file = await context.bot.get_file(document.file_id)
+        file_content = await file.download_as_bytearray()
+        
         text = file_content.decode('utf-8')
         lines = text.strip().split('\n')
         
@@ -879,12 +963,13 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         
         added = 0
-        for num, rule_text in new_rules.items():
-            if num not in RULES:
-                RULES[num] = rule_text
-                added += 1
-        
-        save_rules(RULES)
+        async with _rules_lock:
+            for num, rule_text in new_rules.items():
+                if num not in RULES:
+                    RULES[num] = rule_text
+                    added += 1
+            
+            save_rules(RULES)
         
         result_msg = f"✅ *تم استيراد الأحكام بنجاح!*\n\n"
         result_msg += f"📥 تم إضافة *{added}* حكم جديد\n"
@@ -896,6 +981,7 @@ async def handle_file_import(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(result_msg, parse_mode='Markdown')
         
     except Exception as e:
+        logging.error(f"خطأ في استيراد الملف: {e}")
         await update.message.reply_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
     
     del waiting_for_import[user_id]
@@ -941,8 +1027,9 @@ async def confirm_delete_all(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     
     global RULES
-    RULES = {}
-    save_rules(RULES)
+    async with _rules_lock:
+        RULES = {}
+        save_rules(RULES)
     
     await query.edit_message_text(
         "🗑️ *تم حذف جميع الأحكام بنجاح!*\n\n"
@@ -976,13 +1063,16 @@ async def add_default_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     added = 0
-    for num, text in default_rules.items():
-        if num not in RULES:
-            RULES[num] = text
-            added += 1
+    async with _rules_lock:
+        for num, text in default_rules.items():
+            if num not in RULES:
+                RULES[num] = text
+                added += 1
+        
+        if added > 0:
+            save_rules(RULES)
     
     if added > 0:
-        save_rules(RULES)
         await query.edit_message_text(
             f"✅ *تم إضافة {added} حكم افتراضي!*\n\n"
             f"📊 إجمالي الأحكام: *{len(RULES)}*",
@@ -1082,12 +1172,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     chat_type = update.effective_chat.type
     
-    # ======== زر التحقق من الاشتراك ========
+    # زر التحقق من الاشتراك
     if data == "check_subscription":
         await check_subscription_button(update, context)
         return
     
-    # ======== أزرار اللعب للجميع ========
+    # أزرار اللعب للجميع
     if data == "roll":
         await roll_dice(update, context)
         return
@@ -1096,7 +1186,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await back_to_main(update, context)
         return
     
-    # ======== التحقق من الصلاحيات ========
+    # التحقق من الصلاحيات للأزرار الأخرى
     if chat_type == "private":
         if not is_master_admin(user_id):
             await query.edit_message_text(
@@ -1119,89 +1209,57 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
-    # ======== باقي الأزرار ========
+    # باقي الأزرار
     if data == "settings":
         await settings(update, context)
-        return
-    
-    if data == "master_settings":
+    elif data == "master_settings":
         await master_settings(update, context)
-        return
-    
-    if data == "bot_stats":
+    elif data == "bot_stats":
         await bot_stats(update, context)
-        return
-    
-    if data == "add_rule":
+    elif data == "add_rule":
         await add_rule(update, context)
-        return
-    
-    if data == "delete_rule":
+    elif data == "delete_rule":
         await delete_rule(update, context)
-        return
-    
-    if data == "view_rules":
+    elif data == "view_rules":
         await view_rules(update, context)
-        return
-    
-    if data == "export_rules":
+    elif data == "export_rules":
         await export_rules(update, context)
-        return
-    
-    if data == "import_rules":
+    elif data == "import_rules":
         await import_rules_start(update, context)
-        return
-    
-    if data == "delete_all_rules":
+    elif data == "delete_all_rules":
         await delete_all_rules(update, context)
-        return
-    
-    if data == "add_default_rules":
+    elif data == "add_default_rules":
         await add_default_rules(update, context)
-        return
-    
-    if data == "confirm_delete_all":
+    elif data == "confirm_delete_all":
         await confirm_delete_all(update, context)
-        return
-    
-    if data == "group_settings":
+    elif data == "group_settings":
         await group_settings(update, context)
-        return
-    
-    if data.startswith("toggle_group_"):
+    elif data.startswith("toggle_group_"):
         await toggle_group(update, context)
-        return
-    
-    if data.startswith("view_group_admins_"):
+    elif data.startswith("view_group_admins_"):
         await view_group_admins(update, context)
-        return
-    
-    if data.startswith("add_group_admin_"):
+    elif data.startswith("add_group_admin_"):
         await add_group_admin_start(update, context)
-        return
-    
-    if data.startswith("remove_group_admin_"):
+    elif data.startswith("remove_group_admin_"):
         if data.startswith("remove_admin_"):
             await remove_admin_execute(update, context)
-            return
-        await remove_group_admin_start(update, context)
-        return
-    
-    if data.startswith("del_"):
-        rule_num = data.replace("del_", "")
-        if rule_num in RULES:
-            del RULES[rule_num]
-            save_rules(RULES)
-            await query.edit_message_text(
-                f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
-                    [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
-                ])
-            )
         else:
-            await query.edit_message_text("❌ الحكم غير موجود!")
-        return
+            await remove_group_admin_start(update, context)
+    elif data.startswith("del_"):
+        rule_num = data.replace("del_", "")
+        async with _rules_lock:
+            if rule_num in RULES:
+                del RULES[rule_num]
+                save_rules(RULES)
+                await query.edit_message_text(
+                    f"✅ تم حذف الحكم رقم {rule_num} بنجاح!",
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("⚙️ العودة للإعدادات", callback_data="settings")],
+                        [InlineKeyboardButton("🔙 القائمة الرئيسية", callback_data="back_to_main")]
+                    ])
+                )
+            else:
+                await query.edit_message_text("❌ الحكم غير موجود!")
 
 # ============ معالجة الرسائل ============
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1229,12 +1287,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ الرجاء إدخال رقم صحيح!")
             return
         
-        if text in RULES:
-            await update.message.reply_text(f"❌ الحكم رقم {text} موجود مسبقاً!")
-            return
-        
-        context.user_data['rule_number'] = text
-        waiting_for_rule[user_id] = "waiting_for_rule_text"
+        async with _rules_lock:
+            if text in RULES:
+                await update.message.reply_text(f"❌ الحكم رقم {text} موجود مسبقاً!")
+                return
+            
+            context.user_data['rule_number'] = text
+            waiting_for_rule[user_id] = "waiting_for_rule_text"
         
         await update.message.reply_text(
             f"✅ تم استلام الرقم *{text}*\n\n✏️ الآن أرسل نص الحكم:",
@@ -1244,13 +1303,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif state == "waiting_for_rule_text":
         rule_number = context.user_data.get('rule_number')
         
-        if rule_number in RULES:
-            await update.message.reply_text(f"❌ الحكم رقم {rule_number} موجود مسبقاً!")
-            del waiting_for_rule[user_id]
-            return
-        
-        RULES[rule_number] = text
-        save_rules(RULES)
+        async with _rules_lock:
+            if rule_number in RULES:
+                await update.message.reply_text(f"❌ الحكم رقم {rule_number} موجود مسبقاً!")
+                del waiting_for_rule[user_id]
+                return
+            
+            RULES[rule_number] = text
+            save_rules(RULES)
         
         del waiting_for_rule[user_id]
         context.user_data.clear()
@@ -1320,14 +1380,36 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# ============ معالج الأخطاء ============
+# ============ معالج الأخطاء المحسّن ============
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.error(f"خطأ: {context.error}")
+    """معالج الأخطاء المحسّن"""
+    error = context.error
+    logging.error(f"خطأ: {error}")
+    
+    # تجاهل الأخطاء الشائعة التي لا تؤثر على المستخدم
+    error_str = str(error).lower()
+    ignore_errors = [
+        "message can't be deleted",
+        "message to edit not found",
+        "message is not modified",
+        "timed out",
+        "query is too old",
+        "bot was blocked",
+        "chat not found",
+        "user not found"
+    ]
+    
+    for ignore in ignore_errors:
+        if ignore in error_str:
+            return
+    
     try:
         if update and update.effective_message:
-            await update.effective_message.reply_text("❌ حدث خطأ! يرجى المحاولة مرة أخرى.")
-    except:
-        pass
+            await update.effective_message.reply_text(
+                "❌ حدث خطأ! يرجى المحاولة مرة أخرى."
+            )
+    except Exception as e:
+        logging.error(f"خطأ في معالج الأخطاء: {e}")
 
 # ============ الدالة الرئيسية ============
 def main():
@@ -1352,6 +1434,8 @@ def main():
     print(f"📜 عدد الأحكام المحملة: {len(RULES)}")
     print(f"👑 عدد المشرفين الأساسيين: {len(MASTER_ADMINS)}")
     print(f"📢 القناة الإجبارية: {FORCED_CHANNEL}")
+    print("⚡ تم تفعيل التحسينات لمنع تعدد الاستخدام!")
+    
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
